@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exploding Kittens - Battle!</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: white;
+        }
+
+        .game-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 36px;
+            margin-bottom: 10px;
+        }
+
+        .game-board {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .player-section {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 20px;
+            border: 2px solid #667eea;
+        }
+
+        .player-section.opponent {
+            border-color: #e74c3c;
+        }
+
+        .player-name {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .player-name.opponent {
+            color: #e74c3c;
+        }
+
+        .player-name.current {
+            color: #2ecc71;
+        }
+
+        .player-stats {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 20px;
+            font-size: 16px;
+        }
+
+        .stat {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .player-section.opponent .stat-value {
+            color: #e74c3c;
+        }
+
+        .hand {
+            margin-top: 20px;
+        }
+
+        .hand-label {
+            font-size: 14px;
+            margin-bottom: 10px;
+            opacity: 0.8;
+        }
+
+        .cards {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        .card {
+            width: 80px;
+            height: 100px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: 2px solid white;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            font-size: 12px;
+            font-weight: bold;
+            text-align: center;
+            padding: 8px;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .card.exploding {
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+        }
+
+        .card.defuse {
+            background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+        }
+
+        .card.action {
+            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+        }
+
+        .card.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .center-area {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .deck-display {
+            font-size: 18px;
+            margin-bottom: 20px;
+        }
+
+        .deck-count {
+            font-size: 36px;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 20px;
+        }
+
+        .last-card-played {
+            margin: 20px 0;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            min-height: 40px;
+        }
+
+        .last-card-played-label {
+            font-size: 12px;
+            opacity: 0.8;
+            margin-bottom: 5px;
+        }
+
+        .last-card {
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: bold;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .draw-btn {
+            background: #2ecc71;
+            color: white;
+            flex: 1;
+            max-width: 200px;
+        }
+
+        .draw-btn:hover:not(:disabled) {
+            background: #27ae60;
+            transform: scale(1.05);
+        }
+
+        .draw-btn:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+        }
+
+        .reset-btn {
+            background: #667eea;
+            color: white;
+            padding: 10px 20px;
+        }
+
+        .reset-btn:hover {
+            background: #764ba2;
+        }
+
+        .message {
+            text-align: center;
+            font-size: 18px;
+            margin: 20px 0;
+            min-height: 30px;
+            font-weight: bold;
+        }
+
+        .message.info {
+            color: #667eea;
+        }
+
+        .message.warning {
+            color: #f39c12;
+        }
+
+        .message.danger {
+            color: #e74c3c;
+        }
+
+        .message.success {
+            color: #2ecc71;
+        }
+
+        .game-over {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .game-over.active {
+            display: flex;
+        }
+
+        .game-over-content {
+            background: white;
+            color: #333;
+            padding: 40px;
+            border-radius: 10px;
+            text-align: center;
+            max-width: 500px;
+        }
+
+        .game-over-content h2 {
+            font-size: 32px;
+            margin-bottom: 20px;
+            color: #2ecc71;
+        }
+
+        .game-over-content p {
+            font-size: 18px;
+            margin-bottom: 30px;
+        }
+
+        .game-over-content button {
+            background: #667eea;
+            color: white;
+            padding: 15px 40px;
+            font-size: 18px;
+        }
+
+        .game-over-content button:hover {
+            background: #764ba2;
+        }
+
+        @media (max-width: 768px) {
+            .game-board {
+                grid-template-columns: 1fr;
+            }
+
+            .card {
+                width: 70px;
+                height: 90px;
+            }
+
+            .header h1 {
+                font-size: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div class="header">
+            <h1>🐱 Exploding Kittens Battle</h1>
+        </div>
+
+        <div class="game-board">
+            <!-- Opponent Section -->
+            <div class="player-section opponent">
+                <div class="player-name opponent" id="opponentName">Opponent</div>
+                <div class="player-stats">
+                    <div class="stat">
+                        <div class="hand-label">Hand</div>
+                        <div class="stat-value" id="opponentHandCount">0</div>
+                    </div>
+                    <div class="stat">
+                        <div class="hand-label">Status</div>
+                        <div class="stat-value" id="opponentStatus">Alive</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Center Area -->
+            <div class="center-area">
+                <div class="deck-display">Deck</div>
+                <div class="deck-count" id="deckCount">0</div>
+                <div class="last-card-played">
+                    <div class="last-card-played-label">Last Card Played</div>
+                    <div class="last-card" id="lastCardPlayed">None</div>
+                </div>
+                <div class="message" id="gameMessage"></div>
+                <div class="action-buttons">
+                    <button class="draw-btn" id="drawBtn" onclick="drawCard()">Draw Card</button>
+                </div>
+            </div>
+
+            <!-- Player Section -->
+            <div class="player-section">
+                <div class="player-name current" id="playerName">You</div>
+                <div class="player-stats">
+                    <div class="stat">
+                        <div class="hand-label">Hand</div>
+                        <div class="stat-value" id="playerHandCount">0</div>
+                    </div>
+                    <div class="stat">
+                        <div class="hand-label">Status</div>
+                        <div class="stat-value" id="playerStatus">Alive</div>
+                    </div>
+                </div>
+
+                <div class="hand">
+                    <div class="hand-label">Your Cards</div>
+                    <div class="cards" id="playerCards"></div>
+                </div>
+            </div>
+        </div>
+
+        <button class="reset-btn" onclick="resetGame()">New Game</button>
+    </div>
+
+    <!-- Game Over Modal -->
+    <div class="game-over" id="gameOverModal">
+        <div class="game-over-content">
+            <h2 id="gameOverTitle">Game Over!</h2>
+            <p id="gameOverMessage"></p>
+            <button onclick="resetGame()">Play Again</button>
+            <button onclick="goHome()" style="background: #95a5a6; margin-left: 10px;">Home</button>
+        </div>
+    </div>
+
+    <script>
+        // Card types
+        const CARD_TYPES = {
+            EXPLODING: 'Exploding Kitten',
+            DEFUSE: 'Defuse',
+            SKIP: 'Skip',
+            ATTACK: 'Attack',
+            FAVOR: 'Favor',
+            SHUFFLE: 'Shuffle',
+            PEEK: 'Peek',
+            NOPE: 'Nope'
+        };
+
+        // Game state
+        let gameState = {
+            deck: [],
+            player1: {
+                name: 'Player 1',
+                hand: [],
+                alive: true,
+                attackCount: 0
+            },
+            player2: {
+                name: 'Player 2',
+                hand: [],
+                alive: true,
+                attackCount: 0
+            },
+            currentPlayer: 1,
+            gameOver: false,
+            lastCardPlayed: 'None',
+            round: 0
+        };
+
+        // Initialize game
+        function initGame() {
+            gameState.deck = createDeck();
+            gameState.player1.hand = [];
+            gameState.player2.hand = [];
+            gameState.currentPlayer = 1;
+            gameState.gameOver = false;
+            gameState.lastCardPlayed = 'None';
+
+            // Deal starting cards (5 to each, plus 1 defuse each)
+            for (let i = 0; i < 5; i++) {
+                gameState.player1.hand.push(drawFromDeck());
+                gameState.player2.hand.push(drawFromDeck());
+            }
+            gameState.player1.hand.push({ type: CARD_TYPES.DEFUSE });
+            gameState.player2.hand.push({ type: CARD_TYPES.DEFUSE });
+
+            updateUI();
+        }
+
+        // Create deck
+        function createDeck() {
+            const deck = [];
+            
+            // 4 Exploding Kittens
+            for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.EXPLODING });
+            
+            // 5 Defuses
+            for (let i = 0; i < 5; i++) deck.push({ type: CARD_TYPES.DEFUSE });
+            
+            // 4 Skips
+            for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.SKIP });
+            
+            // 4 Attacks
+            for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.ATTACK });
+            
+            // 4 Favors
+            for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.FAVOR });
+            
+            // 4 Shuffles
+            for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.SHUFFLE });
+            
+            // 4 Peeks
+            for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.PEEK });
+
+            // 4 Nopes
+            for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.NOPE });
+
+            // Shuffle deck
+            return shuffleArray(deck);
+        }
+
+        // Draw from deck
+        function drawFromDeck() {
+            if (gameState.deck.length === 0) {
+                showMessage('Deck is empty! You survive!', 'success');
+                return null;
+            }
+            return gameState.deck.pop();
+        }
+
+        // Shuffle array
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        // Draw card
+        function drawCard() {
+            if (gameState.gameOver) return;
+
+            const currentPlayerObj = gameState.currentPlayer === 1 ? gameState.player1 : gameState.player2;
+            const card = drawFromDeck();
+
+            if (!card) {
+                showMessage('Deck is empty! You win by surviving!', 'success');
+                endGame(gameState.currentPlayer);
+                return;
+            }
+
+            currentPlayerObj.hand.push(card);
+            gameState.lastCardPlayed = card.type;
+
+            // Handle card effects
+            handleCardEffect(card, gameState.currentPlayer);
+
+            // Check for exploding kitten
+            if (card.type === CARD_TYPES.EXPLODING) {
+                const defuseIndex = currentPlayerObj.hand.findIndex(c => c.type === CARD_TYPES.DEFUSE);
+                
+                if (defuseIndex !== -1) {
+                    showMessage('💣 You drew an Exploding Kitten! Using Defuse...', 'warning');
+                    currentPlayerObj.hand.splice(defuseIndex, 1);
+                    currentPlayerObj.hand.splice(currentPlayerObj.hand.indexOf(card), 1);
+                    gameState.deck.push(card);
+                    gameState.deck = shuffleArray(gameState.deck);
+                } else {
+                    showMessage('💣 Exploding Kitten! No Defuse! Game Over!', 'danger');
+                    currentPlayerObj.alive = false;
+                    endGame(gameState.currentPlayer === 1 ? 2 : 1);
+                    return;
+                }
+            }
+
+            // Handle action cards
+            if (card.type === CARD_TYPES.SKIP) {
+                gameState.currentPlayer = gameState.currentPlayer === 1 ? 2 : 1;
+            } else if (card.type === CARD_TYPES.ATTACK) {
+                currentPlayerObj.attackCount = 2;
+                gameState.currentPlayer = gameState.currentPlayer === 1 ? 2 : 1;
+            } else if (card.type === CARD_TYPES.SHUFFLE) {
+                gameState.deck = shuffleArray(gameState.deck);
+                showMessage('🔀 Deck Shuffled!', 'info');
+            } else if (card.type === CARD_TYPES.PEEK) {
+                const topCards = gameState.deck.slice(-3).map(c => c.type).join(', ');
+                showMessage(`👀 Top 3 cards: ${topCards}`, 'info');
+            }
+
+            updateUI();
+            switchTurn();
+        }
+
+        // Handle card effects
+        function handleCardEffect(card, player) {
+            // Effects are handled in drawCard() for now
+        }
+
+        // Switch turn
+        function switchTurn() {
+            if (!gameState.gameOver) {
+                const currentPlayerObj = gameState.currentPlayer === 1 ? gameState.player1 : gameState.player2;
+                
+                if (currentPlayerObj.attackCount > 0) {
+                    currentPlayerObj.attackCount--;
+                    // Stay on same player
+                } else {
+                    gameState.currentPlayer = gameState.currentPlayer === 1 ? 2 : 1;
+                }
+            }
+        }
+
+        // End game
+        function endGame(winner) {
+            gameState.gameOver = true;
+            const winnerName = winner === 1 ? gameState.player1.name : gameState.player2.name;
+            showGameOver(winnerName);
+        }
+
+        // Show game over
+        function showGameOver(winner) {
+            const modal = document.getElementById('gameOverModal');
+            const title = document.getElementById('gameOverTitle');
+            const message = document.getElementById('gameOverMessage');
+            
+            title.textContent = `🎉 ${winner} Wins!`;
+            message.textContent = `Congratulations ${winner}, you survived the Exploding Kittens!`;
+            
+            modal.classList.add('active');
+        }
+
+        // Reset game
+        function resetGame() {
+            document.getElementById('gameOverModal').classList.remove('active');
+            initGame();
+        }
+
+        // Go home
+        function goHome() {
+            window.location.href = 'onlineconnecter.html';
+        }
+
+        // Show message
+        function showMessage(text, type = 'info') {
+            const messageDiv = document.getElementById('gameMessage');
+            messageDiv.textContent = text;
+            messageDiv.className = 'message ' + type;
+        }
+
+        // Update UI
+        function updateUI() {
+            // Update player names
+            document.getElementById('playerName').textContent = gameState.player1.name || 'You';
+            document.getElementById('opponentName').textContent = gameState.player2.name || 'Opponent';
+
+            // Update hand counts
+            document.getElementById('playerHandCount').textContent = gameState.player1.hand.length;
+            document.getElementById('opponentHandCount').textContent = gameState.player2.hand.length;
+
+            // Update deck count
+            document.getElementById('deckCount').textContent = gameState.deck.length;
+
+            // Update last card played
+            document.getElementById('lastCardPlayed').textContent = gameState.lastCardPlayed;
+
+            // Update player status
+            document.getElementById('playerStatus').textContent = gameState.player1.alive ? 'Alive' : 'Dead';
+            document.getElementById('opponentStatus').textContent = gameState.player2.alive ? 'Alive' : 'Dead';
+
+            // Update draw button
+            const drawBtn = document.getElementById('drawBtn');
+            drawBtn.disabled = gameState.currentPlayer !== 1 || gameState.gameOver;
+
+            // Display player's hand
+            const playerCardsDiv = document.getElementById('playerCards');
+            playerCardsDiv.innerHTML = gameState.player1.hand.map((card, index) => {
+                let cardClass = 'card';
+                if (card.type === CARD_TYPES.EXPLODING) cardClass += ' exploding';
+                if (card.type === CARD_TYPES.DEFUSE) cardClass += ' defuse';
+                if (card.type !== CARD_TYPES.EXPLODING && card.type !== CARD_TYPES.DEFUSE) cardClass += ' action';
+                
+                return `<div class="${cardClass}">${card.type}</div>`;
+            }).join('');
+
+            // Show whose turn it is
+            if (gameState.currentPlayer === 1) {
+                showMessage('Your turn! Draw a card.', 'info');
+            } else {
+                showMessage('Opponent is drawing...', 'warning');
+                // Simulate opponent draw after delay
+                setTimeout(() => {
+                    if (!gameState.gameOver) drawCard();
+                }, 2000);
+            }
+        }
+
+        // Get player name from localStorage (from connector)
+        function getPlayerNames() {
+            const game = JSON.parse(localStorage.getItem('exploding_kittens_game') || '{}');
+            gameState.player1.name = game.player1 || 'Player 1';
+            gameState.player2.name = game.player2 || 'Player 2';
+        }
+
+        // Start game
+        getPlayerNames();
+        initGame();
+    </script>
+</body>
+</html>
