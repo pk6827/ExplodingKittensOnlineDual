@@ -187,7 +187,7 @@
                 const gameId = generateGameId();
                 const game = {
                     id: gameId,
-                    player1: opponent,
+                    player1: opponent.name,
                     player2: playerName,
                     createdAt: new Date().toISOString()
                 };
@@ -245,14 +245,8 @@
         }
 
         function startGame(gameId, playerName) {
-            // In a real implementation, this would navigate to the game page
-            alert(`Game started!\nGame ID: ${gameId}\nYour name: ${playerName}\n\nGame logic would start here!`);
-            
-            // Clear data
-            localStorage.removeItem(GAME_KEY);
-            enableInput();
-            playerNameInput.value = '';
-            statusDiv.innerHTML = '';
+            // Navigate to game page
+            window.location.href = 'game.html';
         }
 
         function generateGameId() {
