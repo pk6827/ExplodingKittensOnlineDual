@@ -1,1 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exploding Kittens Online - Find Opponent</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            color: #333;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-align: left;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            font-size: 16px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            font-size: 16px;
+            font-weight: bold;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: #764ba2;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .status {
+            margin-top: 20px;
+            font-size: 14px;
+            color: #666;
+            min-height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .waiting {
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        .error {
+            color: #e74c3c;
+        }
+
+        .success {
+            color: #27ae60;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🐱 Exploding Kittens</h1>
+        <p class="subtitle">Find an opponent and join a game</p>
+
+        <div class="input-group">
+            <label for="playerName">What's your name?</label>
+            <input 
+                type="text" 
+                id="playerName" 
+                placeholder="Enter your name" 
+                maxlength="20"
+            >
+        </div>
+
+        <button id="joinBtn" onclick="joinGame()">Join Game</button>
+
+        <div class="status" id="status"></div>
+    </div>
+
+    <script>
+        const playerNameInput = document.getElementById('playerName');
+        const joinBtn = document.getElementById('joinBtn');
+        const statusDiv = document.getElementById('status');
+
+        // Use localStorage to simulate a simple queue system
+        const QUEUE_KEY = 'exploding_kittens_queue';
+        const GAME_KEY = 'exploding_kittens_game';
+
+        function joinGame() {
+            const playerName = playerNameInput.value.trim();
+
+            if (!playerName) {
+                showStatus('Please enter your name', 'error');
+                return;
+            }
+
+            if (playerName.length < 2) {
+                showStatus('Name must be at least 2 characters', 'error');
+                return;
+            }
+
+            disableInput();
+            showStatus('<span class="spinner"></span><span class="waiting">Waiting for opponent...</span>');
+
+            // Get or create queue
+            let queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+
+            // Check if someone is already waiting
+            if (queue.length > 0) {
+                const opponent = queue.shift();
+                localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+
+                // Create game
+                const gameId = generateGameId();
+                const game = {
+                    id: gameId,
+                    player1: opponent,
+                    player2: playerName,
+                    createdAt: new Date().toISOString()
+                };
+
+                localStorage.setItem(GAME_KEY, JSON.stringify(game));
+
+                // Notify both players
+                showStatus('<span class="success">✓ Opponent found! Game starting...</span>');
+                
+                // Simulate game start after a brief delay
+                setTimeout(() => {
+                    startGame(gameId, playerName);
+                }, 1500);
+            } else {
+                // Add this player to queue
+                const playerData = {
+                    name: playerName,
+                    joinedAt: new Date().toISOString()
+                };
+                queue.push(playerData);
+                localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+
+                // Poll for opponent
+                pollForOpponent(playerName);
+            }
+        }
+
+        function pollForOpponent(playerName) {
+            const pollInterval = setInterval(() => {
+                const game = JSON.parse(localStorage.getItem(GAME_KEY));
+
+                if (game && (game.player1 === playerName || game.player2 === playerName)) {
+                    clearInterval(pollInterval);
+                    showStatus('<span class="success">✓ Opponent found! Game starting...</span>');
+                    
+                    setTimeout(() => {
+                        startGame(game.id, playerName);
+                    }, 1500);
+                }
+            }, 500);
+
+            // Stop polling after 2 minutes
+            setTimeout(() => {
+                clearInterval(pollInterval);
+                if (localStorage.getItem(GAME_KEY) === null) {
+                    enableInput();
+                    showStatus('No opponent found. Try again!', 'error');
+                    
+                    // Remove from queue
+                    let queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+                    queue = queue.filter(p => p.name !== playerName);
+                    localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+                }
+            }, 120000);
+        }
+
+        function startGame(gameId, playerName) {
+            // In a real implementation, this would navigate to the game page
+            alert(`Game started!\nGame ID: ${gameId}\nYour name: ${playerName}\n\nGame logic would start here!`);
+            
+            // Clear data
+            localStorage.removeItem(GAME_KEY);
+            enableInput();
+            playerNameInput.value = '';
+            statusDiv.innerHTML = '';
+        }
+
+        function generateGameId() {
+            return 'game_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        }
+
+        function showStatus(message, type = '') {
+            statusDiv.innerHTML = message;
+            if (type) {
+                statusDiv.className = 'status ' + type;
+            } else {
+                statusDiv.className = 'status';
+            }
+        }
+
+        function disableInput() {
+            playerNameInput.disabled = true;
+            joinBtn.disabled = true;
+        }
+
+        function enableInput() {
+            playerNameInput.disabled = false;
+            joinBtn.disabled = false;
+        }
+
+        // Allow joining with Enter key
+        playerNameInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                joinGame();
+            }
+        });
+    </script>
+</body>
+</html>
