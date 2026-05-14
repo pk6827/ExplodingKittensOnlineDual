@@ -486,6 +486,11 @@
             cursor: not-allowed;
         }
 
+        .card.selected {
+            border: 3px solid #00ff00;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.5);
+        }
+
         .empty-message {
             font-size: 14px;
             opacity: 0.6;
@@ -638,21 +643,14 @@
                 <div class="turn-indicator" id="turnIndicator"></div>
                 <div class="game-message info" id="gameMessage">Waiting for players...</div>
                 <div class="action-buttons">
-                    <button class="end-turn-btn" id="endTurnBtn" onclick="endPlayerTurn()" disabled>Play & Draw Card</button>
-                </div>
-            </div>
-
-            <!-- Playable Cards Display -->
-            <div class="playable-cards-section">
-                <div class="playable-label">🎴 Your Playable Cards (Click to Play)</div>
-                <div class="playable-cards" id="playableCards">
-                    <div class="empty-message">No cards to play yet</div>
+                    <button class="end-turn-btn" id="playCardBtn" onclick="playSelectedCards()" disabled>Play Card</button>
+                    <button class="draw-btn" id="drawCardBtn" onclick="drawAndEndTurn()" disabled>Draw Card</button>
                 </div>
             </div>
 
             <!-- Hand Area -->
             <div class="hand-area">
-                <div class="hand-label">Your Full Hand</div>
+                <div class="hand-label">Your Hand</div>
                 <div class="cards" id="playerCards"></div>
             </div>
         </div>
@@ -677,7 +675,6 @@
     </div>
 
     <script>
-        // Card types
         const CARD_TYPES = {
             EXPLODING: 'Exploding Kitten',
             DEFUSE: 'Defuse',
@@ -689,49 +686,116 @@
             NOPE: 'Nope'
         };
 
-        // Game state
-        let gameState = {
-            deck: [],
-            playedPile: [],
-            playerHand: [],
-            opponentHand: [],
-            currentPlayer: null,
-            gameOver: false,
-            playerName: '',
-            opponentName: '',
-            playerAlive: true,
-            opponentAlive: true,
-            ready: false,
-            selectedCards: [],
-            cardsToPlay: 1,
-            isAttacked: false,
-            turnPhase: 'selectCards' // 'selectCards' or 'draw'
-        };
+        const GAME_STATE_KEY = 'exploding_kittens_gamestate';
+        const GAME_META_KEY = 'exploding_kittens_game';
 
-        // Initialize game
+        let myPlayerNum = null;
+        let selectedCardIndex = null;
+        let localPeekMessage = null;
+
         function initGame() {
-            const game = JSON.parse(localStorage.getItem('exploding_kittens_game') || '{}');
-            gameState.playerName = game.player1 || '';
-            gameState.opponentName = game.player2 || '';
+            const params = new URLSearchParams(window.location.search);
+            myPlayerNum = parseInt(params.get('player'));
 
-            document.getElementById('playerName').textContent = gameState.playerName || 'You';
-            document.getElementById('opponentName').textContent = gameState.opponentName || 'Opponent';
+            if (myPlayerNum !== 1 && myPlayerNum !== 2) {
+                document.getElementById('waitingText').textContent = 'Invalid game link. Return to lobby.';
+                return;
+            }
 
-            gameState.deck = createDeck();
-            dealStartingCards();
+            const meta = JSON.parse(localStorage.getItem(GAME_META_KEY) || '{}');
+            const myName = myPlayerNum === 1 ? meta.player1 : meta.player2;
+            const opponentName = myPlayerNum === 1 ? meta.player2 : meta.player1;
+            document.getElementById('playerName').textContent = myName || 'You';
+            document.getElementById('opponentName').textContent = opponentName || 'Opponent';
 
-            gameState.currentPlayer = 'player';
-            gameState.ready = true;
-            gameState.turnPhase = 'selectCards';
+            let state = readGameState();
 
-            document.getElementById('waitingScreen').classList.remove('active');
-            updateUI();
+            if (!state || !state.initialized) {
+                if (myPlayerNum === 1) {
+                    state = createInitialGameState(meta);
+                    writeGameState(state);
+                    document.getElementById('waitingScreen').classList.remove('active');
+                    renderUI(state);
+                } else {
+                    document.getElementById('waitingText').textContent = 'Waiting for game to initialize...';
+                    const interval = setInterval(() => {
+                        state = readGameState();
+                        if (state && state.initialized) {
+                            clearInterval(interval);
+                            document.getElementById('waitingScreen').classList.remove('active');
+                            renderUI(state);
+                        }
+                    }, 500);
+                }
+            } else {
+                document.getElementById('waitingScreen').classList.remove('active');
+                renderUI(state);
+            }
+
+            window.addEventListener('storage', (e) => {
+                if (e.key === GAME_STATE_KEY) {
+                    const newState = readGameState();
+                    if (newState) {
+                        selectedCardIndex = null;
+                        localPeekMessage = null;
+                        renderUI(newState);
+                    }
+                }
+            });
         }
 
-        // Create deck
+        function readGameState() {
+            try { return JSON.parse(localStorage.getItem(GAME_STATE_KEY)); }
+            catch { return null; }
+        }
+
+        function writeGameState(state) {
+            localStorage.setItem(GAME_STATE_KEY, JSON.stringify(state));
+        }
+
+        function createInitialGameState(meta) {
+            const deck = createDeck();
+            const explodingCards = deck.filter(c => c.type === CARD_TYPES.EXPLODING);
+            const nonExploding = shuffleArray(deck.filter(c => c.type !== CARD_TYPES.EXPLODING));
+
+            const player1Hand = [{ type: CARD_TYPES.DEFUSE }];
+            const player2Hand = [{ type: CARD_TYPES.DEFUSE }];
+
+            let defusesRemoved = 0;
+            const pool = nonExploding.filter(c => {
+                if (c.type === CARD_TYPES.DEFUSE && defusesRemoved < 2) {
+                    defusesRemoved++;
+                    return false;
+                }
+                return true;
+            });
+
+            for (let i = 0; i < 6; i++) {
+                player1Hand.push(pool.pop());
+                player2Hand.push(pool.pop());
+            }
+
+            return {
+                deck: shuffleArray([...pool, ...explodingCards]),
+                playedPile: [],
+                player1Hand,
+                player2Hand,
+                currentPlayer: 1,
+                turnsRemaining: 1,
+                gameOver: false,
+                winner: null,
+                player1Name: meta.player1 || 'Player 1',
+                player2Name: meta.player2 || 'Player 2',
+                player1Alive: true,
+                player2Alive: true,
+                message: 'Game started! Player 1 goes first.',
+                messageType: 'info',
+                initialized: true
+            };
+        }
+
         function createDeck() {
             const deck = [];
-            
             for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.EXPLODING });
             for (let i = 0; i < 6; i++) deck.push({ type: CARD_TYPES.DEFUSE });
             for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.SKIP });
@@ -740,295 +804,227 @@
             for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.SHUFFLE });
             for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.PEEK });
             for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.NOPE });
-
             return shuffleArray(deck);
         }
 
-        // Deal starting cards
-        function dealStartingCards() {
-            const nonExplodingCards = gameState.deck.filter(c => c.type !== CARD_TYPES.EXPLODING);
-            
-            for (let i = 0; i < 6; i++) {
-                gameState.playerHand.push(nonExplodingCards.pop());
-                gameState.opponentHand.push(nonExplodingCards.pop());
-            }
-
-            gameState.playerHand.push({ type: CARD_TYPES.DEFUSE });
-            gameState.opponentHand.push({ type: CARD_TYPES.DEFUSE });
-
-            gameState.deck = gameState.deck.filter(c => c.type !== CARD_TYPES.EXPLODING || !nonExplodingCards.includes(c));
-            gameState.deck = shuffleArray(gameState.deck);
-        }
-
-        // Draw from deck
-        function drawFromDeck() {
-            if (gameState.deck.length === 0) return null;
-            return gameState.deck.pop();
-        }
-
-        // Shuffle array
         function shuffleArray(array) {
-            for (let i = array.length - 1; i > 0; i--) {
+            const arr = [...array];
+            for (let i = arr.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
-                [array[i], array[j]] = [array[j], array[i]];
+                [arr[i], arr[j]] = [arr[j], arr[i]];
             }
-            return array;
+            return arr;
         }
 
-        // Get playable cards
-        function getPlayableCards() {
-            const playable = [];
-            
-            gameState.playerHand.forEach((card, index) => {
-                if (card.type === CARD_TYPES.EXPLODING) return;
-                
-                if (card.type === CARD_TYPES.DEFUSE && !gameState.playerHand.some(c => c.type === CARD_TYPES.EXPLODING)) {
-                    return;
-                }
-                
-                playable.push({ card, index });
-            });
-            
-            return playable;
+        function getMyHand(state) {
+            return myPlayerNum === 1 ? state.player1Hand : state.player2Hand;
+        }
+        function getOpponentHand(state) {
+            return myPlayerNum === 1 ? state.player2Hand : state.player1Hand;
+        }
+        function setMyHand(state, hand) {
+            if (myPlayerNum === 1) state.player1Hand = hand;
+            else state.player2Hand = hand;
+        }
+        function setOpponentHand(state, hand) {
+            if (myPlayerNum === 1) state.player2Hand = hand;
+            else state.player1Hand = hand;
+        }
+        function getMyName(state) {
+            return myPlayerNum === 1 ? state.player1Name : state.player2Name;
+        }
+        function getOpponentName(state) {
+            return myPlayerNum === 1 ? state.player2Name : state.player1Name;
+        }
+        function isMyTurn(state) {
+            return state.currentPlayer === myPlayerNum && !state.gameOver;
         }
 
-        // Toggle card selection
-        function toggleCardSelection(index) {
-            if (!gameState.ready || gameState.gameOver || gameState.currentPlayer !== 'player') return;
-
-            const card = gameState.playerHand[index];
+        function selectCard(index) {
+            const state = readGameState();
+            if (!isMyTurn(state)) return;
+            const hand = getMyHand(state);
+            const card = hand[index];
             if (!card || card.type === CARD_TYPES.EXPLODING) return;
-            if (card.type === CARD_TYPES.DEFUSE && !gameState.playerHand.some(c => c.type === CARD_TYPES.EXPLODING)) return;
-
-            const selectedIndex = gameState.selectedCards.indexOf(index);
-            if (selectedIndex > -1) {
-                gameState.selectedCards.splice(selectedIndex, 1);
-            } else {
-                if (gameState.selectedCards.length < gameState.cardsToPlay) {
-                    gameState.selectedCards.push(index);
-                }
-            }
-
-            updateUI();
+            if (card.type === CARD_TYPES.DEFUSE && !hand.some(c => c.type === CARD_TYPES.EXPLODING)) return;
+            selectedCardIndex = selectedCardIndex === index ? null : index;
+            renderUI(state);
         }
 
-        // Play selected cards and draw
-        function endPlayerTurn() {
-            if (!gameState.ready || gameState.gameOver || gameState.currentPlayer !== 'player') return;
+        function playSelectedCards() {
+            if (selectedCardIndex === null) return;
+            const state = readGameState();
+            if (!isMyTurn(state)) return;
 
-            // Play selected cards
-            if (gameState.selectedCards.length > 0) {
-                if (gameState.selectedCards.length !== gameState.cardsToPlay) {
-                    showMessage(`Select exactly ${gameState.cardsToPlay} card(s) to play!`, 'warning');
-                    return;
+            const myHand = getMyHand(state);
+            const card = myHand[selectedCardIndex];
+            if (!card) return;
+
+            myHand.splice(selectedCardIndex, 1);
+            state.playedPile.push(card);
+
+            const effect = executeCardEffect(card.type, state);
+            selectedCardIndex = null;
+
+            const opponentNum = myPlayerNum === 1 ? 2 : 1;
+
+            if (effect === 'attack') {
+                state.currentPlayer = opponentNum;
+                state.turnsRemaining = 2;
+                state.message = `${getMyName(state)} played ATTACK! ${getOpponentName(state)} must take 2 turns!`;
+                state.messageType = 'danger';
+            } else if (effect === 'skip') {
+                state.turnsRemaining--;
+                if (state.turnsRemaining > 0) {
+                    state.message = `${getMyName(state)} played SKIP! Skipped one draw, still has turns remaining!`;
+                    state.messageType = 'info';
+                } else {
+                    state.currentPlayer = opponentNum;
+                    state.turnsRemaining = 1;
+                    state.message = `${getMyName(state)} played SKIP! Turn ended without drawing!`;
+                    state.messageType = 'info';
                 }
-
-                const cardsToRemove = gameState.selectedCards.sort((a, b) => b - a).map(i => gameState.playerHand[i]);
-                gameState.selectedCards.forEach(i => gameState.playerHand.splice(i, 1));
-
-                cardsToRemove.forEach(card => {
-                    gameState.playedPile.push(card);
-                    executeCardEffect(card.type, 'player');
-                });
-
-                showMessage(`Played ${cardsToRemove.map(c => c.type).join(', ')}`, 'success');
-                gameState.selectedCards = [];
+            } else if (effect === 'shuffle') {
+                state.message = `${getMyName(state)} played SHUFFLE! Deck reshuffled!`;
+                state.messageType = 'info';
+            } else if (effect === 'peek') {
+                state.message = `${getMyName(state)} played See the Future`;
+                state.messageType = 'info';
+            } else if (effect === 'favor') {
+                state.message = `${getMyName(state)} played FAVOR!`;
+                state.messageType = 'success';
+            } else {
+                state.message = `${getMyName(state)} played ${card.type}`;
+                state.messageType = 'success';
             }
 
-            // ALWAYS draw a card
-            const card = drawFromDeck();
+            setMyHand(state, myHand);
+            writeGameState(state);
+            renderUI(state);
+        }
 
-            if (!card) {
-                showMessage('Deck is empty! You win by surviving!', 'success');
-                endGame('player');
+        function executeCardEffect(cardType, state) {
+            if (cardType === CARD_TYPES.ATTACK) return 'attack';
+            if (cardType === CARD_TYPES.SKIP) return 'skip';
+
+            if (cardType === CARD_TYPES.SHUFFLE) {
+                state.deck = shuffleArray(state.deck);
+                return 'shuffle';
+            }
+
+            if (cardType === CARD_TYPES.PEEK) {
+                const topCards = state.deck.slice(-Math.min(3, state.deck.length)).reverse();
+                if (topCards.length > 0) {
+                    const names = topCards.map((c, i) => `${i + 1}. ${c.type}`).join(' | ');
+                    localPeekMessage = `Top ${topCards.length} cards: ${names}`;
+                } else {
+                    localPeekMessage = 'The deck is empty!';
+                }
+                return 'peek';
+            }
+
+            if (cardType === CARD_TYPES.FAVOR) {
+                const opponentHand = getOpponentHand(state);
+                const myHand = getMyHand(state);
+                if (opponentHand.length > 0) {
+                    const randIdx = Math.floor(Math.random() * opponentHand.length);
+                    const stolenCard = opponentHand.splice(randIdx, 1)[0];
+                    myHand.push(stolenCard);
+                    setMyHand(state, myHand);
+                    setOpponentHand(state, opponentHand);
+                }
+                return 'favor';
+            }
+
+            return null;
+        }
+
+        function drawAndEndTurn() {
+            const state = readGameState();
+            if (!isMyTurn(state)) return;
+
+            if (state.deck.length === 0) {
+                state.message = 'Deck is empty!';
+                state.messageType = 'info';
+                state.gameOver = true;
+                writeGameState(state);
+                renderUI(state);
                 return;
             }
 
-            gameState.playerHand.push(card);
+            const myHand = getMyHand(state);
+            const card = state.deck.pop();
+            myHand.push(card);
 
             if (card.type === CARD_TYPES.EXPLODING) {
-                const defuseIndex = gameState.playerHand.findIndex(c => c.type === CARD_TYPES.DEFUSE);
-                
-                if (defuseIndex !== -1) {
-                    showMessage('💣 You drew an Exploding Kitten! Using Defuse...', 'warning');
-                    gameState.playerHand.splice(defuseIndex, 1);
-                    const explosiveIndex = gameState.playerHand.indexOf(card);
-                    gameState.playerHand.splice(explosiveIndex, 1);
-                    gameState.playedPile.push(card);
+                const defuseIdx = myHand.findIndex(c => c.type === CARD_TYPES.DEFUSE);
+                if (defuseIdx !== -1) {
+                    myHand.splice(defuseIdx, 1);
+                    const ekIdx = myHand.indexOf(card);
+                    myHand.splice(ekIdx, 1);
+                    const pos = Math.floor(Math.random() * (state.deck.length + 1));
+                    state.deck.splice(pos, 0, card);
+                    state.message = `${getMyName(state)} drew an Exploding Kitten! Used Defuse!`;
+                    state.messageType = 'warning';
                 } else {
-                    showMessage('💣 Exploding Kitten! No Defuse! Game Over!', 'danger');
-                    gameState.playerAlive = false;
-                    endGame('opponent');
-                    updateUI();
+                    state.message = `${getMyName(state)} drew an Exploding Kitten! No Defuse! Game Over!`;
+                    state.messageType = 'danger';
+                    if (myPlayerNum === 1) state.player1Alive = false;
+                    else state.player2Alive = false;
+                    const opponentNum = myPlayerNum === 1 ? 2 : 1;
+                    state.gameOver = true;
+                    state.winner = opponentNum;
+                    setMyHand(state, myHand);
+                    writeGameState(state);
+                    renderUI(state);
                     return;
                 }
             } else {
-                showMessage(`Drew ${card.type}`, 'info');
+                state.message = `${getMyName(state)} drew a card`;
+                state.messageType = 'info';
             }
 
-            gameState.currentPlayer = 'opponent';
-            gameState.cardsToPlay = 1;
-            gameState.isAttacked = false;
-            updateUI();
-
-            setTimeout(() => {
-                opponentTurn();
-            }, 2000);
-        }
-
-        // Execute card effects
-        function executeCardEffect(cardType, player) {
-            if (cardType === CARD_TYPES.ATTACK) {
-                gameState.isAttacked = true;
-                gameState.cardsToPlay = 2;
-                if (player === 'player') {
-                    showMessage('⚔️ ATTACK! Opponent must play 2 cards!', 'danger');
-                }
-            } else if (cardType === CARD_TYPES.SKIP) {
-                if (player === 'player') {
-                    showMessage('⏭️ SKIP! Opponent turn skipped!', 'info');
-                    gameState.currentPlayer = 'player';
-                }
-            } else if (cardType === CARD_TYPES.SHUFFLE) {
-                gameState.deck = shuffleArray(gameState.deck);
-                if (player === 'player') {
-                    showMessage('🔀 SHUFFLE! Deck reshuffled!', 'info');
-                }
-            }
-        }
-
-        // Opponent turn
-        function opponentTurn() {
-            if (gameState.gameOver) return;
-
-            // Opponent decides: play or skip
-            const playableCards = gameState.opponentHand.filter(c => c.type !== CARD_TYPES.EXPLODING && c.type !== CARD_TYPES.DEFUSE);
-            
-            let shouldPlay = false;
-            if (gameState.isAttacked) {
-                shouldPlay = playableCards.length >= gameState.cardsToPlay;
+            state.turnsRemaining--;
+            if (state.turnsRemaining > 0) {
+                state.message += `. Still ${state.turnsRemaining} turn(s) remaining!`;
             } else {
-                shouldPlay = Math.random() > 0.6 && playableCards.length > 0;
+                const opponentNum = myPlayerNum === 1 ? 2 : 1;
+                state.currentPlayer = opponentNum;
+                state.turnsRemaining = 1;
             }
 
-            if (shouldPlay && playableCards.length > 0) {
-                opponentPlayCards();
-            } else {
-                opponentDrawCard();
-            }
+            setMyHand(state, myHand);
+            selectedCardIndex = null;
+            writeGameState(state);
+            renderUI(state);
         }
 
-        // Opponent plays cards
-        function opponentPlayCards() {
-            if (gameState.gameOver) return;
-
-            const playableCards = gameState.opponentHand.filter(c => c.type !== CARD_TYPES.EXPLODING && c.type !== CARD_TYPES.DEFUSE);
-            
-            if (playableCards.length === 0) {
-                opponentDrawCard();
-                return;
-            }
-
-            const cardsToPlay = [];
-            const numCards = gameState.isAttacked ? Math.min(gameState.cardsToPlay, playableCards.length) : 1;
-            
-            for (let i = 0; i < numCards && playableCards.length > 0; i++) {
-                const randomIndex = Math.floor(Math.random() * playableCards.length);
-                const card = playableCards.splice(randomIndex, 1)[0];
-                cardsToPlay.push(card);
-            }
-
-            cardsToPlay.forEach(card => {
-                const cardIndex = gameState.opponentHand.indexOf(card);
-                gameState.opponentHand.splice(cardIndex, 1);
-                gameState.playedPile.push(card);
-                executeCardEffect(card.type, 'opponent');
-            });
-
-            showMessage(`Opponent played ${cardsToPlay.map(c => c.type).join(', ')}`, 'warning');
-            gameState.currentPlayer = 'player';
-            gameState.cardsToPlay = 1;
-            gameState.isAttacked = false;
-            updateUI();
-        }
-
-        // Opponent draws card
-        function opponentDrawCard() {
-            if (gameState.gameOver) return;
-
-            const card = drawFromDeck();
-
-            if (!card) {
-                showMessage('Deck is empty! Opponent runs out of cards!', 'success');
-                endGame('player');
-                return;
-            }
-
-            gameState.opponentHand.push(card);
-
-            if (card.type === CARD_TYPES.EXPLODING) {
-                const defuseIndex = gameState.opponentHand.findIndex(c => c.type === CARD_TYPES.DEFUSE);
-                
-                if (defuseIndex !== -1) {
-                    showMessage('💣 Opponent drew an Exploding Kitten! Using Defuse...', 'warning');
-                    gameState.opponentHand.splice(defuseIndex, 1);
-                    const explosiveIndex = gameState.opponentHand.indexOf(card);
-                    gameState.opponentHand.splice(explosiveIndex, 1);
-                    gameState.playedPile.push(card);
-                } else {
-                    showMessage('💣 Opponent drew an Exploding Kitten! No Defuse!', 'success');
-                    gameState.opponentAlive = false;
-                    endGame('player');
-                    updateUI();
-                    return;
-                }
-            }
-
-            showMessage(`Opponent drew a card...`, 'warning');
-            gameState.currentPlayer = 'player';
-            gameState.cardsToPlay = 1;
-            gameState.isAttacked = false;
-            updateUI();
-        }
-
-        // End game
-        function endGame(winner) {
-            gameState.gameOver = true;
-            const winnerName = winner === 'player' ? gameState.playerName : gameState.opponentName;
-            showGameOver(winnerName, winner === 'player');
-        }
-
-        // Show game over
-        function showGameOver(winner, playerWon) {
+        function showGameOver(winnerName, playerWon) {
             const modal = document.getElementById('gameOverModal');
             const title = document.getElementById('gameOverTitle');
             const message = document.getElementById('gameOverMessage');
-            
             if (playerWon) {
-                title.textContent = `🎉 You Win!`;
-                message.textContent = `Congratulations! You survived the Exploding Kittens and defeated ${gameState.opponentName}!`;
+                title.textContent = 'You Win!';
+                message.textContent = 'Congratulations! You survived the Exploding Kittens!';
             } else {
-                title.textContent = `💀 Game Over`;
-                message.textContent = `${winner} has won! Better luck next time!`;
+                title.textContent = 'Game Over';
+                message.textContent = `${winnerName} has won! Better luck next time!`;
             }
-            
             modal.classList.add('active');
         }
 
-        // Go home
         function goHome() {
-            localStorage.removeItem('exploding_kittens_game');
+            localStorage.removeItem(GAME_META_KEY);
+            localStorage.removeItem(GAME_STATE_KEY);
             window.location.href = 'onlineconnecter.html';
         }
 
-        // Show message
-        function showMessage(text, type = 'info') {
-            const messageDiv = document.getElementById('gameMessage');
-            messageDiv.textContent = text;
-            messageDiv.className = 'game-message ' + type;
+        function showMessage(text, type) {
+            const el = document.getElementById('gameMessage');
+            el.textContent = text;
+            el.className = 'game-message ' + (type || 'info');
         }
 
-        // Get card class
         function getCardClass(cardType) {
             switch(cardType) {
                 case CARD_TYPES.EXPLODING: return 'exploding';
@@ -1043,7 +1039,6 @@
             }
         }
 
-        // Get card emoji
         function getCardEmoji(cardType) {
             switch(cardType) {
                 case CARD_TYPES.EXPLODING: return '💣';
@@ -1058,79 +1053,78 @@
             }
         }
 
-        // Update UI
-        function updateUI() {
-            document.getElementById('playerHandCount').textContent = gameState.playerHand.length;
-            document.getElementById('opponentHandCount').textContent = gameState.opponentHand.length;
-            document.getElementById('deckCount').textContent = gameState.deck.length + ' cards';
-            document.getElementById('playedCount').textContent = gameState.playedPile.length + ' cards';
+        function renderUI(state) {
+            if (!state) return;
 
-            if (gameState.playedPile.length > 0) {
-                const lastCard = gameState.playedPile[gameState.playedPile.length - 1];
+            const myHand = getMyHand(state);
+            const opponentHand = getOpponentHand(state);
+            const myTurn = isMyTurn(state);
+
+            document.getElementById('playerHandCount').textContent = myHand.length;
+            document.getElementById('opponentHandCount').textContent = opponentHand.length;
+            document.getElementById('deckCount').textContent = state.deck.length + ' cards';
+            document.getElementById('playedCount').textContent = state.playedPile.length + ' cards';
+
+            if (state.playedPile.length > 0) {
+                const lastCard = state.playedPile[state.playedPile.length - 1];
                 document.getElementById('playedCardType').textContent = getCardEmoji(lastCard.type);
             }
 
-            // Update turn indicator
+            document.getElementById('playerStatus').textContent = myTurn ? 'Active' : 'Waiting';
+            document.getElementById('opponentStatus').textContent = myTurn ? 'Waiting' : 'Active';
+
             const turnIndicator = document.getElementById('turnIndicator');
-            if (gameState.currentPlayer === 'player') {
-                if (gameState.isAttacked) {
-                    turnIndicator.textContent = '⚔️ YOU ARE ATTACKED! Must play 2 cards, then draw!';
+            if (myTurn) {
+                if (state.turnsRemaining > 1) {
+                    turnIndicator.textContent = `YOU ARE ATTACKED! ${state.turnsRemaining} turns remaining!`;
                 } else {
-                    turnIndicator.textContent = '✅ Your Turn - Select cards to play (optional), then draw!';
+                    turnIndicator.textContent = 'Your Turn - Play cards (optional), then draw!';
                 }
                 turnIndicator.className = 'turn-indicator your-turn';
             } else {
-                turnIndicator.textContent = '⏳ Opponent\'s Turn';
+                turnIndicator.textContent = `${getOpponentName(state)}'s Turn`;
                 turnIndicator.className = 'turn-indicator opponent-turn';
             }
 
-            // Update button
-            document.getElementById('endTurnBtn').disabled = gameState.currentPlayer !== 'player' || gameState.gameOver;
-
-            // Render playable cards
-            const playableCardsDiv = document.getElementById('playableCards');
-            const playable = getPlayableCards();
-            
-            if (playable.length === 0) {
-                playableCardsDiv.innerHTML = '<div class="empty-message">No playable cards. You\'ll just draw.</div>';
+            if (localPeekMessage) {
+                showMessage(localPeekMessage, 'info');
+                localPeekMessage = null;
             } else {
-                playableCardsDiv.innerHTML = '';
-                playable.forEach(({ card, index }) => {
-                    const cardDiv = document.createElement('div');
-                    cardDiv.className = 'playable-card ' + getCardClass(card.type);
-                    if (gameState.selectedCards.includes(index)) {
-                        cardDiv.classList.add('selected');
-                    }
-                    cardDiv.textContent = getCardEmoji(card.type) + '\n' + card.type.substring(0, 8);
-                    cardDiv.onclick = () => toggleCardSelection(index);
-                    if (gameState.currentPlayer !== 'player' || gameState.gameOver) {
-                        cardDiv.classList.add('disabled');
-                        cardDiv.onclick = null;
-                    }
-                    playableCardsDiv.appendChild(cardDiv);
-                });
+                showMessage(state.message || '', state.messageType || 'info');
             }
 
-            // Render player cards
-            const playerCardsDiv = document.getElementById('playerCards');
-            playerCardsDiv.innerHTML = '';
-            gameState.playerHand.forEach((card, index) => {
+            document.getElementById('playCardBtn').disabled = !myTurn || selectedCardIndex === null;
+            document.getElementById('drawCardBtn').disabled = !myTurn;
+            document.getElementById('drawDeckBtn').style.pointerEvents = myTurn ? 'auto' : 'none';
+            document.getElementById('drawDeckBtn').style.opacity = myTurn ? '1' : '0.5';
+
+            const cardsDiv = document.getElementById('playerCards');
+            cardsDiv.innerHTML = '';
+            myHand.forEach((card, index) => {
                 const cardDiv = document.createElement('div');
                 cardDiv.className = 'card ' + getCardClass(card.type);
+                if (selectedCardIndex === index) cardDiv.classList.add('selected');
                 cardDiv.textContent = getCardEmoji(card.type) + '\n' + card.type.substring(0, 8);
-                if (card.type === CARD_TYPES.EXPLODING || gameState.currentPlayer !== 'player') {
+
+                const canSelect = myTurn && card.type !== CARD_TYPES.EXPLODING &&
+                    !(card.type === CARD_TYPES.DEFUSE && !myHand.some(c => c.type === CARD_TYPES.EXPLODING));
+
+                if (canSelect) {
+                    cardDiv.onclick = () => selectCard(index);
+                    cardDiv.style.cursor = 'pointer';
+                } else {
                     cardDiv.classList.add('disabled');
                 }
-                playerCardsDiv.appendChild(cardDiv);
+
+                cardsDiv.appendChild(cardDiv);
             });
+
+            if (state.gameOver && state.winner) {
+                const winnerName = state.winner === 1 ? state.player1Name : state.player2Name;
+                showGameOver(winnerName, state.winner === myPlayerNum);
+            }
         }
 
-        // Draw and end turn (simplified)
-        function drawAndEndTurn() {
-            endPlayerTurn();
-        }
-
-        // Start game when page loads
         window.addEventListener('load', initGame);
     </script>
 </body>

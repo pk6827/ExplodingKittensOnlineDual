@@ -193,13 +193,14 @@
                 };
 
                 localStorage.setItem(GAME_KEY, JSON.stringify(game));
+                localStorage.removeItem('exploding_kittens_gamestate');
 
                 // Notify both players
                 showStatus('<span class="success">✓ Opponent found! Game starting...</span>');
                 
-                // Simulate game start after a brief delay
+                // Player 2 navigates
                 setTimeout(() => {
-                    startGame(gameId, playerName);
+                    startGame(gameId, playerName, 2);
                 }, 1500);
             } else {
                 // Add this player to queue
@@ -223,8 +224,9 @@
                     clearInterval(pollInterval);
                     showStatus('<span class="success">✓ Opponent found! Game starting...</span>');
                     
+                    const playerNum = game.player1 === playerName ? 1 : 2;
                     setTimeout(() => {
-                        startGame(game.id, playerName);
+                        startGame(game.id, playerName, playerNum);
                     }, 1500);
                 }
             }, 500);
@@ -244,9 +246,8 @@
             }, 120000);
         }
 
-        function startGame(gameId, playerName) {
-            // Navigate to game page
-            window.location.href = 'game.html';
+        function startGame(gameId, playerName, playerNum) {
+            window.location.href = `game.html?player=${playerNum}`;
         }
 
         function generateGameId() {
