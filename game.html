@@ -82,7 +82,7 @@
 
         .game-board {
             display: grid;
-            grid-template-rows: auto 1fr auto auto;
+            grid-template-rows: auto auto 1fr auto;
             gap: 20px;
             margin-bottom: 30px;
         }
@@ -145,9 +145,9 @@
             color: #e74c3c;
         }
 
-        .middle-area {
+        .decks-area {
             display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-columns: 1fr 1fr;
             gap: 20px;
             align-items: start;
         }
@@ -158,6 +158,10 @@
             padding: 20px;
             text-align: center;
             border: 2px dashed #667eea;
+        }
+
+        .deck-section.play-pile {
+            border-color: #f39c12;
         }
 
         .pile-label {
@@ -222,6 +226,7 @@
             border-radius: 10px;
             padding: 20px;
             text-align: center;
+            grid-column: 1 / -1;
         }
 
         .turn-indicator {
@@ -297,6 +302,83 @@
             background: #bdc3c7;
             cursor: not-allowed;
             opacity: 0.6;
+        }
+
+        .playable-cards-section {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 20px;
+            border: 2px solid #f39c12;
+        }
+
+        .playable-label {
+            font-size: 14px;
+            opacity: 0.8;
+            margin-bottom: 15px;
+            font-weight: bold;
+            color: #f39c12;
+        }
+
+        .playable-cards {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            min-height: 140px;
+            align-items: center;
+        }
+
+        .playable-card {
+            width: 80px;
+            height: 120px;
+            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+            border: 2px solid white;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: bold;
+            text-align: center;
+            padding: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            user-select: none;
+        }
+
+        .playable-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+            border-color: #ffd700;
+        }
+
+        .playable-card.defuse {
+            background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+        }
+
+        .playable-card.skip {
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+        }
+
+        .playable-card.attack {
+            background: linear-gradient(135deg, #e67e22 0%, #d35400 100%);
+        }
+
+        .playable-card.favor {
+            background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%);
+        }
+
+        .playable-card.shuffle {
+            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+        }
+
+        .playable-card.peek {
+            background: linear-gradient(135deg, #1abc9c 0%, #16a085 100%);
+        }
+
+        .playable-card.nope {
+            background: linear-gradient(135deg, #c0392b 0%, #a93226 100%);
         }
 
         .hand-area {
@@ -382,90 +464,6 @@
             cursor: not-allowed;
         }
 
-        .playable-deck {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            padding: 20px;
-            text-align: center;
-            border: 2px dashed #f39c12;
-            min-height: 180px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .playable-label {
-            font-size: 14px;
-            opacity: 0.8;
-            margin-bottom: 15px;
-            font-weight: bold;
-        }
-
-        .playable-cards {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            justify-content: center;
-        }
-
-        .playable-card {
-            width: 80px;
-            height: 120px;
-            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
-            border: 2px solid white;
-            border-radius: 8px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            font-size: 11px;
-            font-weight: bold;
-            text-align: center;
-            padding: 8px;
-            cursor: pointer;
-            transition: all 0.3s;
-            user-select: none;
-        }
-
-        .playable-card:hover {
-            transform: translateY(-10px);
-            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
-            border-color: #ffd700;
-        }
-
-        .playable-card.exploding {
-            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-        }
-
-        .playable-card.defuse {
-            background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
-        }
-
-        .playable-card.skip {
-            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
-        }
-
-        .playable-card.attack {
-            background: linear-gradient(135deg, #e67e22 0%, #d35400 100%);
-        }
-
-        .playable-card.favor {
-            background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%);
-        }
-
-        .playable-card.shuffle {
-            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
-        }
-
-        .playable-card.peek {
-            background: linear-gradient(135deg, #1abc9c 0%, #16a085 100%);
-        }
-
-        .playable-card.nope {
-            background: linear-gradient(135deg, #c0392b 0%, #a93226 100%);
-        }
-
         .empty-message {
             font-size: 14px;
             opacity: 0.6;
@@ -524,7 +522,7 @@
         }
 
         @media (max-width: 1024px) {
-            .middle-area {
+            .decks-area {
                 grid-template-columns: 1fr 1fr;
             }
 
@@ -544,7 +542,7 @@
                 font-size: 24px;
             }
 
-            .middle-area {
+            .decks-area {
                 grid-template-columns: 1fr;
             }
         }
@@ -590,8 +588,8 @@
                 </div>
             </div>
 
-            <!-- Middle Area: Draw Deck and Played Pile -->
-            <div class="middle-area">
+            <!-- Decks Area: Draw Deck and Play Pile -->
+            <div class="decks-area">
                 <!-- Draw Deck (Face Down) -->
                 <div class="deck-section">
                     <div class="pile-label">Draw Pile</div>
@@ -601,17 +599,8 @@
                     <div class="deck-count" id="deckCount">0 cards</div>
                 </div>
 
-                <!-- Center Display -->
-                <div class="center-display">
-                    <div class="turn-indicator" id="turnIndicator"></div>
-                    <div class="game-message info" id="gameMessage">Waiting for players...</div>
-                    <div class="action-buttons">
-                        <button class="draw-btn" id="drawBtn" onclick="playerDrawCard()" disabled>Draw Card</button>
-                    </div>
-                </div>
-
                 <!-- Played Pile (Face Up) -->
-                <div class="deck-section">
+                <div class="deck-section play-pile">
                     <div class="pile-label">Played Cards</div>
                     <div class="deck-visual">
                         <div class="deck-card play-pile-card" id="playedCard" style="left: 0;">
@@ -622,9 +611,18 @@
                 </div>
             </div>
 
+            <!-- Center Display -->
+            <div class="center-display">
+                <div class="turn-indicator" id="turnIndicator"></div>
+                <div class="game-message info" id="gameMessage">Waiting for players...</div>
+                <div class="action-buttons">
+                    <button class="draw-btn" id="drawBtn" onclick="playerDrawCard()" disabled>Draw Card</button>
+                </div>
+            </div>
+
             <!-- Playable Cards Display -->
-            <div class="playable-deck">
-                <div class="playable-label">Your Playable Cards (Click to Play)</div>
+            <div class="playable-cards-section">
+                <div class="playable-label">🎴 Your Playable Cards (Click to Play)</div>
                 <div class="playable-cards" id="playableCards">
                     <div class="empty-message">No cards to play yet</div>
                 </div>
@@ -675,7 +673,7 @@
             playedPile: [],
             playerHand: [],
             opponentHand: [],
-            currentPlayer: null, // 'player' or 'opponent'
+            currentPlayer: null,
             gameOver: false,
             playerName: '',
             opponentName: '',
@@ -689,29 +687,22 @@
 
         // Initialize game
         function initGame() {
-            // Get game info from localStorage
             const game = JSON.parse(localStorage.getItem('exploding_kittens_game') || '{}');
             gameId = game.id || '';
             gameState.playerName = game.player1 || '';
             gameState.opponentName = game.player2 || '';
             isPlayer1 = game.player1 === gameState.playerName;
 
-            // Update names in UI
             document.getElementById('playerName').textContent = gameState.playerName || 'You';
             document.getElementById('opponentName').textContent = gameState.opponentName || 'Opponent';
 
-            // Create and shuffle deck
             gameState.deck = createDeck();
-
-            // Deal starting cards (6 cards to each player, no exploding kittens)
             dealStartingCards();
 
             gameState.currentPlayer = 'player';
             gameState.ready = true;
 
-            // Hide waiting screen
             document.getElementById('waitingScreen').classList.remove('active');
-
             updateUI();
         }
 
@@ -719,55 +710,32 @@
         function createDeck() {
             const deck = [];
             
-            // 4 Exploding Kittens
             for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.EXPLODING });
-            
-            // 6 Defuses (2 extra for starting hands)
             for (let i = 0; i < 6; i++) deck.push({ type: CARD_TYPES.DEFUSE });
-            
-            // 4 Skips
             for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.SKIP });
-            
-            // 4 Attacks
             for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.ATTACK });
-            
-            // 4 Favors
             for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.FAVOR });
-            
-            // 4 Shuffles
             for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.SHUFFLE });
-            
-            // 4 Peeks
             for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.PEEK });
-
-            // 4 Nopes
             for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.NOPE });
 
             return shuffleArray(deck);
         }
 
-        // Deal starting cards (no exploding kittens)
+        // Deal starting cards (guaranteed no exploding kittens)
         function dealStartingCards() {
-            // Deal 6 cards to each player, ensuring no exploding kittens
+            const nonExplodingCards = gameState.deck.filter(c => c.type !== CARD_TYPES.EXPLODING);
+            
             for (let i = 0; i < 6; i++) {
-                let playerCard = drawFromDeck();
-                while (playerCard && playerCard.type === CARD_TYPES.EXPLODING) {
-                    gameState.playedPile.push(playerCard);
-                    playerCard = drawFromDeck();
-                }
-                gameState.playerHand.push(playerCard);
-
-                let opponentCard = drawFromDeck();
-                while (opponentCard && opponentCard.type === CARD_TYPES.EXPLODING) {
-                    gameState.playedPile.push(opponentCard);
-                    opponentCard = drawFromDeck();
-                }
-                gameState.opponentHand.push(opponentCard);
+                gameState.playerHand.push(nonExplodingCards.pop());
+                gameState.opponentHand.push(nonExplodingCards.pop());
             }
 
-            // Give each player 1 defuse
             gameState.playerHand.push({ type: CARD_TYPES.DEFUSE });
             gameState.opponentHand.push({ type: CARD_TYPES.DEFUSE });
+
+            gameState.deck = gameState.deck.filter(c => c.type !== CARD_TYPES.EXPLODING || !nonExplodingCards.includes(c));
+            gameState.deck = shuffleArray(gameState.deck);
         }
 
         // Draw from deck
@@ -787,14 +755,18 @@
             return array;
         }
 
+        // Get playable cards
+        function getPlayableCards() {
+            return gameState.playerHand.filter(c => c.type !== CARD_TYPES.EXPLODING);
+        }
+
         // Play card
         function playCard(cardIndex) {
             if (!gameState.ready || gameState.gameOver || gameState.currentPlayer !== 'player') return;
 
             const card = gameState.playerHand[cardIndex];
-            if (!card) return;
+            if (!card || card.type === CARD_TYPES.EXPLODING) return;
 
-            // Remove card from hand and add to played pile
             gameState.playerHand.splice(cardIndex, 1);
             gameState.playedPile.push(card);
 
@@ -802,9 +774,8 @@
             gameState.currentPlayer = 'opponent';
             updateUI();
 
-            // Opponent takes turn after delay
             setTimeout(() => {
-                opponentPlayCard();
+                opponentTurn();
             }, 2000);
         }
 
@@ -822,7 +793,6 @@
 
             gameState.playerHand.push(card);
 
-            // Handle exploding kitten
             if (card.type === CARD_TYPES.EXPLODING) {
                 const defuseIndex = gameState.playerHand.findIndex(c => c.type === CARD_TYPES.DEFUSE);
                 
@@ -847,7 +817,6 @@
             gameState.currentPlayer = 'opponent';
             updateUI();
 
-            // Opponent takes turn after delay
             setTimeout(() => {
                 opponentTurn();
             }, 2000);
@@ -857,7 +826,6 @@
         function opponentTurn() {
             if (gameState.gameOver) return;
 
-            // Randomly decide to draw or play
             const shouldPlay = Math.random() > 0.5 && gameState.opponentHand.length > 1;
 
             if (shouldPlay) {
@@ -903,7 +871,6 @@
 
             gameState.opponentHand.push(card);
 
-            // Handle exploding kitten
             if (card.type === CARD_TYPES.EXPLODING) {
                 const defuseIndex = gameState.opponentHand.findIndex(c => c.type === CARD_TYPES.DEFUSE);
                 
@@ -981,34 +948,37 @@
             }
         }
 
+        // Get card emoji
+        function getCardEmoji(cardType) {
+            switch(cardType) {
+                case CARD_TYPES.EXPLODING: return '💣';
+                case CARD_TYPES.DEFUSE: return '🧯';
+                case CARD_TYPES.SKIP: return '⏭️';
+                case CARD_TYPES.ATTACK: return '⚔️';
+                case CARD_TYPES.FAVOR: return '🙏';
+                case CARD_TYPES.SHUFFLE: return '🔀';
+                case CARD_TYPES.PEEK: return '👀';
+                case CARD_TYPES.NOPE: return '🚫';
+                default: return '🎴';
+            }
+        }
+
         // Update UI
         function updateUI() {
-            // Update hand counts
             document.getElementById('playerHandCount').textContent = gameState.playerHand.length;
             document.getElementById('opponentHandCount').textContent = gameState.opponentHand.length;
-
-            // Update deck count
             document.getElementById('deckCount').textContent = gameState.deck.length + ' cards';
-
-            // Update played pile count
             document.getElementById('playedCount').textContent = gameState.playedPile.length + ' cards';
 
-            // Update last card played
             if (gameState.playedPile.length > 0) {
                 const lastCard = gameState.playedPile[gameState.playedPile.length - 1];
-                document.getElementById('playedCardType').textContent = lastCard.type.substring(0, 12);
-            } else {
-                document.getElementById('playedCardType').textContent = '—';
+                document.getElementById('playedCardType').textContent = getCardEmoji(lastCard.type);
             }
-
-            // Update player status
-            document.getElementById('playerStatus').textContent = gameState.playerAlive ? 'Alive ✓' : 'Dead ✗';
-            document.getElementById('opponentStatus').textContent = gameState.opponentAlive ? 'Alive ✓' : 'Dead ✗';
 
             // Update turn indicator
             const turnIndicator = document.getElementById('turnIndicator');
             if (gameState.currentPlayer === 'player') {
-                turnIndicator.textContent = '🎮 Your Turn';
+                turnIndicator.textContent = '✅ Your Turn';
                 turnIndicator.className = 'turn-indicator your-turn';
             } else {
                 turnIndicator.textContent = '⏳ Opponent\'s Turn';
@@ -1016,34 +986,47 @@
             }
 
             // Update draw button
-            const drawBtn = document.getElementById('drawBtn');
-            drawBtn.disabled = gameState.currentPlayer !== 'player' || gameState.gameOver;
+            document.getElementById('drawBtn').disabled = gameState.currentPlayer !== 'player' || gameState.gameOver;
 
-            // Display player's full hand
+            // Render player cards
             const playerCardsDiv = document.getElementById('playerCards');
-            playerCardsDiv.innerHTML = gameState.playerHand.map((card, index) => {
-                const cardClass = getCardClass(card.type);
-                return `<div class="card ${cardClass}" onclick="playCard(${index})" title="Click to play">${card.type}</div>`;
-            }).join('');
+            playerCardsDiv.innerHTML = '';
+            gameState.playerHand.forEach((card, index) => {
+                const cardDiv = document.createElement('div');
+                cardDiv.className = 'card ' + getCardClass(card.type);
+                cardDiv.textContent = getCardEmoji(card.type) + '\n' + card.type.substring(0, 8);
+                cardDiv.onclick = () => playCard(index);
+                if (card.type === CARD_TYPES.EXPLODING || gameState.currentPlayer !== 'player') {
+                    cardDiv.classList.add('disabled');
+                    cardDiv.onclick = null;
+                }
+                playerCardsDiv.appendChild(cardDiv);
+            });
 
-            // Display playable cards
+            // Render playable cards
             const playableCardsDiv = document.getElementById('playableCards');
-            if (gameState.playerHand.length > 0) {
-                playableCardsDiv.innerHTML = gameState.playerHand.map((card, index) => {
-                    const cardClass = getCardClass(card.type);
-                    return `<div class="playable-card ${cardClass}" onclick="playCard(${index})" title="Click to play">${card.type}</div>`;
-                }).join('');
+            const playable = getPlayableCards();
+            
+            if (playable.length === 0) {
+                playableCardsDiv.innerHTML = '<div class="empty-message">No cards to play</div>';
             } else {
-                playableCardsDiv.innerHTML = '<div class="empty-message">No cards in hand</div>';
+                playableCardsDiv.innerHTML = '';
+                playable.forEach((card, index) => {
+                    const cardIndex = gameState.playerHand.indexOf(card);
+                    const cardDiv = document.createElement('div');
+                    cardDiv.className = 'playable-card ' + getCardClass(card.type);
+                    cardDiv.textContent = getCardEmoji(card.type) + '\n' + card.type.substring(0, 8);
+                    cardDiv.onclick = () => playCard(cardIndex);
+                    if (gameState.currentPlayer !== 'player' || gameState.gameOver) {
+                        cardDiv.onclick = null;
+                    }
+                    playableCardsDiv.appendChild(cardDiv);
+                });
             }
         }
 
-        // Start game when ready
-        window.addEventListener('load', () => {
-            setTimeout(() => {
-                initGame();
-            }, 1000);
-        });
+        // Start game when page loads
+        window.addEventListener('load', initGame);
     </script>
 </body>
 </html>
