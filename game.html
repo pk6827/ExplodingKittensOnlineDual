@@ -423,6 +423,47 @@
             font-weight: bold;
             text-align: center;
             padding: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            user-select: none;
+        }
+
+        .playable-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+            border-color: #ffd700;
+        }
+
+        .playable-card.exploding {
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+        }
+
+        .playable-card.defuse {
+            background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+        }
+
+        .playable-card.skip {
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+        }
+
+        .playable-card.attack {
+            background: linear-gradient(135deg, #e67e22 0%, #d35400 100%);
+        }
+
+        .playable-card.favor {
+            background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%);
+        }
+
+        .playable-card.shuffle {
+            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+        }
+
+        .playable-card.peek {
+            background: linear-gradient(135deg, #1abc9c 0%, #16a085 100%);
+        }
+
+        .playable-card.nope {
+            background: linear-gradient(135deg, #c0392b 0%, #a93226 100%);
         }
 
         .empty-message {
@@ -583,7 +624,7 @@
 
             <!-- Playable Cards Display -->
             <div class="playable-deck">
-                <div class="playable-label">Your Playable Cards</div>
+                <div class="playable-label">Your Playable Cards (Click to Play)</div>
                 <div class="playable-cards" id="playableCards">
                     <div class="empty-message">No cards to play yet</div>
                 </div>
@@ -746,6 +787,27 @@
             return array;
         }
 
+        // Play card
+        function playCard(cardIndex) {
+            if (!gameState.ready || gameState.gameOver || gameState.currentPlayer !== 'player') return;
+
+            const card = gameState.playerHand[cardIndex];
+            if (!card) return;
+
+            // Remove card from hand and add to played pile
+            gameState.playerHand.splice(cardIndex, 1);
+            gameState.playedPile.push(card);
+
+            showMessage(`Played ${card.type}`, 'success');
+            gameState.currentPlayer = 'opponent';
+            updateUI();
+
+            // Opponent takes turn after delay
+            setTimeout(() => {
+                opponentPlayCard();
+            }, 2000);
+        }
+
         // Player draws card
         function playerDrawCard() {
             if (!gameState.ready || gameState.gameOver || gameState.currentPlayer !== 'player') return;
@@ -787,11 +849,47 @@
 
             // Opponent takes turn after delay
             setTimeout(() => {
-                opponentDrawCard();
+                opponentTurn();
             }, 2000);
         }
 
-        // Opponent draws card (AI)
+        // Opponent turn
+        function opponentTurn() {
+            if (gameState.gameOver) return;
+
+            // Randomly decide to draw or play
+            const shouldPlay = Math.random() > 0.5 && gameState.opponentHand.length > 1;
+
+            if (shouldPlay) {
+                opponentPlayCard();
+            } else {
+                opponentDrawCard();
+            }
+        }
+
+        // Opponent plays card
+        function opponentPlayCard() {
+            if (gameState.gameOver) return;
+
+            const playableCards = gameState.opponentHand.filter(c => c.type !== CARD_TYPES.EXPLODING);
+            
+            if (playableCards.length === 0) {
+                opponentDrawCard();
+                return;
+            }
+
+            const randomCard = playableCards[Math.floor(Math.random() * playableCards.length)];
+            const cardIndex = gameState.opponentHand.indexOf(randomCard);
+            
+            gameState.opponentHand.splice(cardIndex, 1);
+            gameState.playedPile.push(randomCard);
+
+            showMessage(`Opponent played ${randomCard.type}`, 'warning');
+            gameState.currentPlayer = 'player';
+            updateUI();
+        }
+
+        // Opponent draws card
         function opponentDrawCard() {
             if (gameState.gameOver) return;
 
@@ -925,15 +1023,15 @@
             const playerCardsDiv = document.getElementById('playerCards');
             playerCardsDiv.innerHTML = gameState.playerHand.map((card, index) => {
                 const cardClass = getCardClass(card.type);
-                return `<div class="card ${cardClass}">${card.type}</div>`;
+                return `<div class="card ${cardClass}" onclick="playCard(${index})" title="Click to play">${card.type}</div>`;
             }).join('');
 
-            // Display playable cards (all cards can be played)
+            // Display playable cards
             const playableCardsDiv = document.getElementById('playableCards');
             if (gameState.playerHand.length > 0) {
                 playableCardsDiv.innerHTML = gameState.playerHand.map((card, index) => {
                     const cardClass = getCardClass(card.type);
-                    return `<div class="playable-card ${cardClass}">${card.type}</div>`;
+                    return `<div class="playable-card ${cardClass}" onclick="playCard(${index})" title="Click to play">${card.type}</div>`;
                 }).join('');
             } else {
                 playableCardsDiv.innerHTML = '<div class="empty-message">No cards in hand</div>';
