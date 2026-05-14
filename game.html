@@ -616,7 +616,7 @@
                 <div class="deck-section">
                     <div class="pile-label">Draw Pile</div>
                     <div class="deck-visual">
-                        <div class="deck-card draw-deck" onclick="playerDrawCard()" id="drawDeckBtn" style="cursor: pointer; left: 0;"></div>
+                        <div class="deck-card draw-deck" onclick="drawAndEndTurn()" id="drawDeckBtn" style="cursor: pointer; left: 0;"></div>
                     </div>
                     <div class="deck-count" id="deckCount">0 cards</div>
                 </div>
@@ -638,8 +638,7 @@
                 <div class="turn-indicator" id="turnIndicator"></div>
                 <div class="game-message info" id="gameMessage">Waiting for players...</div>
                 <div class="action-buttons">
-                    <button class="draw-btn" id="drawBtn" onclick="playerDrawCard()" disabled>Draw Card</button>
-                    <button class="end-turn-btn" id="endTurnBtn" onclick="endPlayerTurn()" disabled>End Turn</button>
+                    <button class="end-turn-btn" id="endTurnBtn" onclick="endPlayerTurn()" disabled>Play & Draw Card</button>
                 </div>
             </div>
 
@@ -677,26 +676,7 @@
         </div>
     </div>
 
-    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-database.js"></script>
     <script>
-        // Firebase Configuration
-        const firebaseConfig = {
-            apiKey: "AIzaSyB0EXAMPLE",
-            authDomain: "exploding-kittens-game.firebaseapp.com",
-            databaseURL: "https://exploding-kittens-game-default-rtdb.firebaseio.com",
-            projectId: "exploding-kittens-game",
-            storageBucket: "exploding-kittens-game.appspot.com",
-            messagingSenderId: "EXAMPLE",
-            appId: "EXAMPLE"
-        };
-
-        let db;
-        let gameRef;
-        let gameId = '';
-        let playerId = '';
-        let playerName = '';
-
         // Card types
         const CARD_TYPES = {
             EXPLODING: 'Exploding Kitten',
@@ -724,45 +704,13 @@
             ready: false,
             selectedCards: [],
             cardsToPlay: 1,
-            isAttacked: false
+            isAttacked: false,
+            turnPhase: 'selectCards' // 'selectCards' or 'draw'
         };
 
-        // Initialize Firebase and game
-        async function initGame() {
-            try {
-                firebase.initializeApp(firebaseConfig);
-                db = firebase.database();
-
-                const game = JSON.parse(localStorage.getItem('exploding_kittens_game') || '{}');
-                gameId = game.id || '';
-                playerId = localStorage.getItem('playerId') || generatePlayerId();
-                gameState.playerName = game.player1 || '';
-                gameState.opponentName = game.player2 || '';
-                playerName = gameState.playerName;
-
-                localStorage.setItem('playerId', playerId);
-
-                document.getElementById('playerName').textContent = gameState.playerName || 'You';
-                document.getElementById('opponentName').textContent = gameState.opponentName || 'Opponent';
-
-                gameState.deck = createDeck();
-                dealStartingCards();
-
-                gameState.currentPlayer = 'player';
-                gameState.ready = true;
-
-                document.getElementById('waitingScreen').classList.remove('active');
-                updateUI();
-            } catch (error) {
-                console.error('Firebase initialization error:', error);
-                showMessage('Firebase not configured. Using local mode.', 'warning');
-                startLocalGame();
-            }
-        }
-
-        function startLocalGame() {
+        // Initialize game
+        function initGame() {
             const game = JSON.parse(localStorage.getItem('exploding_kittens_game') || '{}');
-            gameId = game.id || '';
             gameState.playerName = game.player1 || '';
             gameState.opponentName = game.player2 || '';
 
@@ -774,14 +722,10 @@
 
             gameState.currentPlayer = 'player';
             gameState.ready = true;
+            gameState.turnPhase = 'selectCards';
 
             document.getElementById('waitingScreen').classList.remove('active');
             updateUI();
-        }
-
-        // Generate unique player ID
-        function generatePlayerId() {
-            return 'player_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
         }
 
         // Create deck
@@ -800,7 +744,7 @@
             return shuffleArray(deck);
         }
 
-        // Deal starting cards (guaranteed no exploding kittens)
+        // Deal starting cards
         function dealStartingCards() {
             const nonExplodingCards = gameState.deck.filter(c => c.type !== CARD_TYPES.EXPLODING);
             
@@ -831,14 +775,13 @@
             return array;
         }
 
-        // Get playable cards (based on game state)
+        // Get playable cards
         function getPlayableCards() {
             const playable = [];
             
             gameState.playerHand.forEach((card, index) => {
                 if (card.type === CARD_TYPES.EXPLODING) return;
                 
-                // Can't play defuse unless there's an exploding kitten
                 if (card.type === CARD_TYPES.DEFUSE && !gameState.playerHand.some(c => c.type === CARD_TYPES.EXPLODING)) {
                     return;
                 }
@@ -869,70 +812,30 @@
             updateUI();
         }
 
-        // Play selected cards
-        function playSelectedCards() {
-            if (gameState.selectedCards.length !== gameState.cardsToPlay) {
-                showMessage(`Select exactly ${gameState.cardsToPlay} card(s) to play!`, 'warning');
-                return;
-            }
-
-            const cardsToRemove = gameState.selectedCards.sort((a, b) => b - a).map(i => gameState.playerHand[i]);
-            gameState.selectedCards.forEach(i => gameState.playerHand.splice(i, 1));
-
-            cardsToRemove.forEach(card => {
-                gameState.playedPile.push(card);
-                executeCardEffect(card.type, 'player');
-            });
-
-            showMessage(`Played ${cardsToRemove.map(c => c.type).join(', ')}`, 'success');
-            gameState.selectedCards = [];
-            gameState.cardsToPlay = 1;
-            gameState.isAttacked = false;
-
-            gameState.currentPlayer = 'opponent';
-            updateUI();
-
-            setTimeout(() => {
-                opponentTurn();
-            }, 2000);
-        }
-
-        // Execute card effects
-        function executeCardEffect(cardType, player) {
-            if (cardType === CARD_TYPES.ATTACK) {
-                gameState.isAttacked = true;
-                gameState.cardsToPlay = 2;
-                if (player === 'player') {
-                    showMessage('⚔️ ATTACK! Opponent must play 2 cards!', 'danger');
-                }
-            } else if (cardType === CARD_TYPES.SKIP) {
-                if (player === 'player') {
-                    showMessage('⏭️ SKIP! Opponent turn skipped!', 'info');
-                    gameState.currentPlayer = 'player';
-                }
-            } else if (cardType === CARD_TYPES.SHUFFLE) {
-                gameState.deck = shuffleArray(gameState.deck);
-                if (player === 'player') {
-                    showMessage('🔀 SHUFFLE! Deck reshuffled!', 'info');
-                }
-            }
-        }
-
-        // End player turn
+        // Play selected cards and draw
         function endPlayerTurn() {
             if (!gameState.ready || gameState.gameOver || gameState.currentPlayer !== 'player') return;
 
+            // Play selected cards
             if (gameState.selectedCards.length > 0) {
-                playSelectedCards();
-            } else {
-                playerDrawCard();
+                if (gameState.selectedCards.length !== gameState.cardsToPlay) {
+                    showMessage(`Select exactly ${gameState.cardsToPlay} card(s) to play!`, 'warning');
+                    return;
+                }
+
+                const cardsToRemove = gameState.selectedCards.sort((a, b) => b - a).map(i => gameState.playerHand[i]);
+                gameState.selectedCards.forEach(i => gameState.playerHand.splice(i, 1));
+
+                cardsToRemove.forEach(card => {
+                    gameState.playedPile.push(card);
+                    executeCardEffect(card.type, 'player');
+                });
+
+                showMessage(`Played ${cardsToRemove.map(c => c.type).join(', ')}`, 'success');
+                gameState.selectedCards = [];
             }
-        }
 
-        // Player draws card
-        function playerDrawCard() {
-            if (!gameState.ready || gameState.gameOver || gameState.currentPlayer !== 'player') return;
-
+            // ALWAYS draw a card
             const card = drawFromDeck();
 
             if (!card) {
@@ -964,7 +867,6 @@
             }
 
             gameState.currentPlayer = 'opponent';
-            gameState.selectedCards = [];
             gameState.cardsToPlay = 1;
             gameState.isAttacked = false;
             updateUI();
@@ -974,37 +876,66 @@
             }, 2000);
         }
 
-        // Opponent turn
-        function opponentTurn() {
-            if (gameState.gameOver) return;
-
-            if (gameState.isAttacked) {
-                opponentPlayCards(2);
-            } else {
-                const shouldPlay = Math.random() > 0.5 && gameState.opponentHand.length > 1;
-                if (shouldPlay) {
-                    opponentPlayCards(1);
-                } else {
-                    opponentDrawCard();
+        // Execute card effects
+        function executeCardEffect(cardType, player) {
+            if (cardType === CARD_TYPES.ATTACK) {
+                gameState.isAttacked = true;
+                gameState.cardsToPlay = 2;
+                if (player === 'player') {
+                    showMessage('⚔️ ATTACK! Opponent must play 2 cards!', 'danger');
+                }
+            } else if (cardType === CARD_TYPES.SKIP) {
+                if (player === 'player') {
+                    showMessage('⏭️ SKIP! Opponent turn skipped!', 'info');
+                    gameState.currentPlayer = 'player';
+                }
+            } else if (cardType === CARD_TYPES.SHUFFLE) {
+                gameState.deck = shuffleArray(gameState.deck);
+                if (player === 'player') {
+                    showMessage('🔀 SHUFFLE! Deck reshuffled!', 'info');
                 }
             }
         }
 
+        // Opponent turn
+        function opponentTurn() {
+            if (gameState.gameOver) return;
+
+            // Opponent decides: play or skip
+            const playableCards = gameState.opponentHand.filter(c => c.type !== CARD_TYPES.EXPLODING && c.type !== CARD_TYPES.DEFUSE);
+            
+            let shouldPlay = false;
+            if (gameState.isAttacked) {
+                shouldPlay = playableCards.length >= gameState.cardsToPlay;
+            } else {
+                shouldPlay = Math.random() > 0.6 && playableCards.length > 0;
+            }
+
+            if (shouldPlay && playableCards.length > 0) {
+                opponentPlayCards();
+            } else {
+                opponentDrawCard();
+            }
+        }
+
         // Opponent plays cards
-        function opponentPlayCards(numCards) {
+        function opponentPlayCards() {
             if (gameState.gameOver) return;
 
             const playableCards = gameState.opponentHand.filter(c => c.type !== CARD_TYPES.EXPLODING && c.type !== CARD_TYPES.DEFUSE);
             
-            if (playableCards.length < numCards) {
+            if (playableCards.length === 0) {
                 opponentDrawCard();
                 return;
             }
 
             const cardsToPlay = [];
+            const numCards = gameState.isAttacked ? Math.min(gameState.cardsToPlay, playableCards.length) : 1;
+            
             for (let i = 0; i < numCards && playableCards.length > 0; i++) {
                 const randomIndex = Math.floor(Math.random() * playableCards.length);
-                cardsToPlay.push(playableCards.splice(randomIndex, 1)[0]);
+                const card = playableCards.splice(randomIndex, 1)[0];
+                cardsToPlay.push(card);
             }
 
             cardsToPlay.forEach(card => {
@@ -1016,7 +947,6 @@
 
             showMessage(`Opponent played ${cardsToPlay.map(c => c.type).join(', ')}`, 'warning');
             gameState.currentPlayer = 'player';
-            gameState.selectedCards = [];
             gameState.cardsToPlay = 1;
             gameState.isAttacked = false;
             updateUI();
@@ -1056,7 +986,6 @@
 
             showMessage(`Opponent drew a card...`, 'warning');
             gameState.currentPlayer = 'player';
-            gameState.selectedCards = [];
             gameState.cardsToPlay = 1;
             gameState.isAttacked = false;
             updateUI();
@@ -1145,9 +1074,9 @@
             const turnIndicator = document.getElementById('turnIndicator');
             if (gameState.currentPlayer === 'player') {
                 if (gameState.isAttacked) {
-                    turnIndicator.textContent = '⚔️ YOU ARE ATTACKED! Play 2 cards!';
+                    turnIndicator.textContent = '⚔️ YOU ARE ATTACKED! Must play 2 cards, then draw!';
                 } else {
-                    turnIndicator.textContent = '✅ Your Turn';
+                    turnIndicator.textContent = '✅ Your Turn - Select cards to play (optional), then draw!';
                 }
                 turnIndicator.className = 'turn-indicator your-turn';
             } else {
@@ -1155,18 +1084,15 @@
                 turnIndicator.className = 'turn-indicator opponent-turn';
             }
 
-            // Update buttons
-            document.getElementById('drawBtn').disabled = gameState.currentPlayer !== 'player' || gameState.gameOver || gameState.selectedCards.length > 0;
+            // Update button
             document.getElementById('endTurnBtn').disabled = gameState.currentPlayer !== 'player' || gameState.gameOver;
 
             // Render playable cards
             const playableCardsDiv = document.getElementById('playableCards');
             const playable = getPlayableCards();
             
-            if (playable.length === 0 && gameState.currentPlayer === 'player') {
-                playableCardsDiv.innerHTML = '<div class="empty-message">No playable cards. You must draw!</div>';
-            } else if (playable.length === 0) {
-                playableCardsDiv.innerHTML = '<div class="empty-message">No cards to play</div>';
+            if (playable.length === 0) {
+                playableCardsDiv.innerHTML = '<div class="empty-message">No playable cards. You\'ll just draw.</div>';
             } else {
                 playableCardsDiv.innerHTML = '';
                 playable.forEach(({ card, index }) => {
@@ -1197,6 +1123,11 @@
                 }
                 playerCardsDiv.appendChild(cardDiv);
             });
+        }
+
+        // Draw and end turn (simplified)
+        function drawAndEndTurn() {
+            endPlayerTurn();
         }
 
         // Start game when page loads
