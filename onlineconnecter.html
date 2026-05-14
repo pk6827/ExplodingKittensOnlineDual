@@ -26,7 +26,7 @@
             border-radius: 10px;
             box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
             text-align: center;
-            max-width: 400px;
+            max-width: 420px;
             width: 90%;
         }
 
@@ -68,8 +68,14 @@
             border-color: #667eea;
         }
 
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
         button {
-            width: 100%;
+            flex: 1;
             padding: 12px;
             font-size: 16px;
             font-weight: bold;
@@ -88,6 +94,42 @@
         button:disabled {
             background: #ccc;
             cursor: not-allowed;
+        }
+
+        button.secondary {
+            background: #2ecc71;
+        }
+
+        button.secondary:hover {
+            background: #27ae60;
+        }
+
+        .room-code-display {
+            display: none;
+            margin: 20px 0;
+            padding: 15px;
+            background: #f0f4ff;
+            border-radius: 8px;
+            border: 2px dashed #667eea;
+        }
+
+        .room-code-display .code {
+            font-size: 32px;
+            font-weight: bold;
+            letter-spacing: 6px;
+            color: #667eea;
+            margin: 10px 0;
+            font-family: monospace;
+        }
+
+        .room-code-display .label {
+            font-size: 13px;
+            color: #666;
+        }
+
+        .join-section {
+            display: none;
+            margin-bottom: 20px;
         }
 
         .status {
@@ -116,168 +158,204 @@
             100% { transform: rotate(360deg); }
         }
 
-        .waiting {
-            color: #667eea;
-            font-weight: bold;
-        }
-
-        .error {
-            color: #e74c3c;
-        }
-
-        .success {
-            color: #27ae60;
-        }
+        .waiting { color: #667eea; font-weight: bold; }
+        .error { color: #e74c3c; }
+        .success { color: #27ae60; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🐱 Exploding Kittens</h1>
-        <p class="subtitle">Find an opponent and join a game</p>
+        <p class="subtitle">Play online with a friend!</p>
 
         <div class="input-group">
-            <label for="playerName">What's your name?</label>
-            <input 
-                type="text" 
-                id="playerName" 
-                placeholder="Enter your name" 
-                maxlength="20"
-            >
+            <label for="playerName">Your Name</label>
+            <input type="text" id="playerName" placeholder="Enter your name" maxlength="20">
         </div>
 
-        <button id="joinBtn" onclick="joinGame()">Join Game</button>
+        <div class="btn-group" id="mainButtons">
+            <button onclick="createRoom()">Create Game</button>
+            <button class="secondary" onclick="showJoinSection()">Join Game</button>
+        </div>
+
+        <div class="room-code-display" id="roomCodeDisplay">
+            <div class="label">Share this code with your friend:</div>
+            <div class="code" id="roomCode"></div>
+            <div class="label">Waiting for them to join...</div>
+        </div>
+
+        <div class="join-section" id="joinSection">
+            <div class="input-group">
+                <label for="roomCodeInput">Room Code</label>
+                <input type="text" id="roomCodeInput" placeholder="Enter room code" maxlength="6" style="text-transform: uppercase; letter-spacing: 4px; text-align: center; font-size: 20px;">
+            </div>
+            <button onclick="joinRoom()">Join</button>
+        </div>
 
         <div class="status" id="status"></div>
     </div>
 
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <script>
-        const playerNameInput = document.getElementById('playerName');
-        const joinBtn = document.getElementById('joinBtn');
-        const statusDiv = document.getElementById('status');
-
-        // Use localStorage to simulate a simple queue system
-        const QUEUE_KEY = 'exploding_kittens_queue';
         const GAME_KEY = 'exploding_kittens_game';
+        let peer = null;
 
-        function joinGame() {
-            const playerName = playerNameInput.value.trim();
+        function generateCode() {
+            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+            let code = '';
+            for (let i = 0; i < 5; i++) code += chars[Math.floor(Math.random() * chars.length)];
+            return code;
+        }
 
-            if (!playerName) {
-                showStatus('Please enter your name', 'error');
+        function createRoom() {
+            const name = document.getElementById('playerName').value.trim();
+            if (!name || name.length < 2) {
+                showStatus('Enter a name (2+ characters)', 'error');
                 return;
             }
 
-            if (playerName.length < 2) {
-                showStatus('Name must be at least 2 characters', 'error');
+            const code = generateCode();
+            const peerId = 'eklobby-' + code;
+
+            disableAll();
+            showStatus('<span class="spinner"></span><span class="waiting">Creating room...</span>');
+
+            peer = new Peer(peerId);
+
+            peer.on('open', () => {
+                document.getElementById('roomCode').textContent = code;
+                document.getElementById('roomCodeDisplay').style.display = 'block';
+                showStatus('<span class="spinner"></span><span class="waiting">Waiting for opponent to join...</span>');
+
+                peer.on('connection', (conn) => {
+                    conn.on('open', () => {
+                        conn.on('data', (data) => {
+                            if (data.type === 'join') {
+                                const game = {
+                                    role: 'host',
+                                    playerName: name,
+                                    opponentName: data.name,
+                                    peerId: peerId,
+                                    roomCode: code
+                                };
+                                sessionStorage.setItem(GAME_KEY, JSON.stringify(game));
+
+                                conn.send({ type: 'start', hostName: name });
+                                showStatus('<span class="success">Opponent joined! Starting game...</span>');
+
+                                setTimeout(() => {
+                                    peer.destroy();
+                                    window.location.href = 'game.html';
+                                }, 1000);
+                            }
+                        });
+                    });
+                });
+            });
+
+            peer.on('error', (err) => {
+                if (err.type === 'unavailable-id') {
+                    showStatus('Room code taken. Try again.', 'error');
+                    enableAll();
+                } else {
+                    showStatus('Connection error: ' + err.type, 'error');
+                    enableAll();
+                }
+            });
+        }
+
+        function showJoinSection() {
+            const name = document.getElementById('playerName').value.trim();
+            if (!name || name.length < 2) {
+                showStatus('Enter a name (2+ characters)', 'error');
+                return;
+            }
+            document.getElementById('joinSection').style.display = 'block';
+            document.getElementById('mainButtons').style.display = 'none';
+            document.getElementById('roomCodeInput').focus();
+        }
+
+        function joinRoom() {
+            const name = document.getElementById('playerName').value.trim();
+            const code = document.getElementById('roomCodeInput').value.trim().toUpperCase();
+
+            if (!code || code.length < 4) {
+                showStatus('Enter a valid room code', 'error');
                 return;
             }
 
-            disableInput();
-            showStatus('<span class="spinner"></span><span class="waiting">Waiting for opponent...</span>');
+            disableAll();
+            showStatus('<span class="spinner"></span><span class="waiting">Connecting...</span>');
 
-            // Get or create queue
-            let queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
+            const hostPeerId = 'eklobby-' + code;
+            peer = new Peer();
 
-            // Check if someone is already waiting
-            if (queue.length > 0) {
-                const opponent = queue.shift();
-                localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+            peer.on('open', () => {
+                const conn = peer.connect(hostPeerId, { reliable: true });
 
-                // Create game
-                const gameId = generateGameId();
-                const game = {
-                    id: gameId,
-                    player1: opponent.name,
-                    player2: playerName,
-                    createdAt: new Date().toISOString()
-                };
+                conn.on('open', () => {
+                    conn.send({ type: 'join', name: name });
+                    showStatus('<span class="spinner"></span><span class="waiting">Joining game...</span>');
 
-                localStorage.setItem(GAME_KEY, JSON.stringify(game));
-                localStorage.removeItem('exploding_kittens_gamestate');
+                    conn.on('data', (data) => {
+                        if (data.type === 'start') {
+                            const game = {
+                                role: 'client',
+                                playerName: name,
+                                opponentName: data.hostName,
+                                roomCode: code
+                            };
+                            sessionStorage.setItem(GAME_KEY, JSON.stringify(game));
 
-                // Notify both players
-                showStatus('<span class="success">✓ Opponent found! Game starting...</span>');
-                
-                // Player 2 navigates
+                            showStatus('<span class="success">Connected! Starting game...</span>');
+
+                            setTimeout(() => {
+                                peer.destroy();
+                                window.location.href = 'game.html';
+                            }, 1000);
+                        }
+                    });
+                });
+
+                conn.on('error', () => {
+                    showStatus('Could not connect. Check the room code.', 'error');
+                    enableAll();
+                });
+
                 setTimeout(() => {
-                    startGame(gameId, playerName, 2);
-                }, 1500);
-            } else {
-                // Add this player to queue
-                const playerData = {
-                    name: playerName,
-                    joinedAt: new Date().toISOString()
-                };
-                queue.push(playerData);
-                localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+                    if (!conn.open) {
+                        showStatus('Connection timed out. Check the code and try again.', 'error');
+                        enableAll();
+                    }
+                }, 15000);
+            });
 
-                // Poll for opponent
-                pollForOpponent(playerName);
-            }
-        }
-
-        function pollForOpponent(playerName) {
-            const pollInterval = setInterval(() => {
-                const game = JSON.parse(localStorage.getItem(GAME_KEY));
-
-                if (game && (game.player1 === playerName || game.player2 === playerName)) {
-                    clearInterval(pollInterval);
-                    showStatus('<span class="success">✓ Opponent found! Game starting...</span>');
-                    
-                    const playerNum = game.player1 === playerName ? 1 : 2;
-                    setTimeout(() => {
-                        startGame(game.id, playerName, playerNum);
-                    }, 1500);
-                }
-            }, 500);
-
-            // Stop polling after 2 minutes
-            setTimeout(() => {
-                clearInterval(pollInterval);
-                if (localStorage.getItem(GAME_KEY) === null) {
-                    enableInput();
-                    showStatus('No opponent found. Try again!', 'error');
-                    
-                    // Remove from queue
-                    let queue = JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]');
-                    queue = queue.filter(p => p.name !== playerName);
-                    localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
-                }
-            }, 120000);
-        }
-
-        function startGame(gameId, playerName, playerNum) {
-            window.location.href = `game.html?player=${playerNum}`;
-        }
-
-        function generateGameId() {
-            return 'game_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            peer.on('error', (err) => {
+                showStatus('Connection error: ' + err.type, 'error');
+                enableAll();
+            });
         }
 
         function showStatus(message, type = '') {
-            statusDiv.innerHTML = message;
-            if (type) {
-                statusDiv.className = 'status ' + type;
-            } else {
-                statusDiv.className = 'status';
-            }
+            const s = document.getElementById('status');
+            s.innerHTML = message;
+            s.className = 'status' + (type ? ' ' + type : '');
         }
 
-        function disableInput() {
-            playerNameInput.disabled = true;
-            joinBtn.disabled = true;
+        function disableAll() {
+            document.querySelectorAll('button, input').forEach(el => el.disabled = true);
         }
 
-        function enableInput() {
-            playerNameInput.disabled = false;
-            joinBtn.disabled = false;
+        function enableAll() {
+            document.querySelectorAll('button, input').forEach(el => el.disabled = false);
         }
 
-        // Allow joining with Enter key
-        playerNameInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                joinGame();
-            }
+        document.getElementById('playerName').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') document.getElementById('mainButtons').querySelector('button').click();
+        });
+
+        document.getElementById('roomCodeInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') joinRoom();
         });
     </script>
 </body>

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Exploding Kittens - Real Multiplayer Battle</title>
+    <title>Exploding Kittens - Online Battle</title>
     <style>
         * {
             margin: 0;
@@ -206,7 +206,7 @@
         }
 
         .draw-deck::after {
-            content: '🔰';
+            content: '\ud83d\udee1';
             font-size: 24px;
         }
 
@@ -486,11 +486,6 @@
             cursor: not-allowed;
         }
 
-        .card.selected {
-            border: 3px solid #00ff00;
-            box-shadow: 0 0 20px rgba(0, 255, 0, 0.5);
-        }
-
         .empty-message {
             font-size: 14px;
             opacity: 0.6;
@@ -578,7 +573,7 @@
 <body>
     <div class="game-container">
         <div class="header">
-            <h1>🐱 Exploding Kittens - Multiplayer Battle</h1>
+            <h1>🐱 Exploding Kittens - Online Battle</h1>
         </div>
 
         <div class="game-board">
@@ -586,7 +581,7 @@
             <div class="top-area">
                 <!-- Opponent Section -->
                 <div class="player-section opponent">
-                    <div class="player-name opponent" id="opponentName">Waiting for opponent...</div>
+                    <div class="player-name opponent" id="opponentName">Opponent</div>
                     <div class="player-stats">
                         <div class="stat">
                             <div class="stat-label">Hand</div>
@@ -641,16 +636,23 @@
             <!-- Center Display -->
             <div class="center-display">
                 <div class="turn-indicator" id="turnIndicator"></div>
-                <div class="game-message info" id="gameMessage">Waiting for players...</div>
+                <div class="game-message info" id="gameMessage">Connecting to opponent...</div>
                 <div class="action-buttons">
-                    <button class="end-turn-btn" id="playCardBtn" onclick="playSelectedCards()" disabled>Play Card</button>
-                    <button class="draw-btn" id="drawCardBtn" onclick="drawAndEndTurn()" disabled>Draw Card</button>
+                    <button class="end-turn-btn" id="endTurnBtn" onclick="endPlayerTurn()" disabled>Play & Draw Card</button>
+                </div>
+            </div>
+
+            <!-- Playable Cards Display -->
+            <div class="playable-cards-section">
+                <div class="playable-label">🎴 Your Playable Cards (Click to Play)</div>
+                <div class="playable-cards" id="playableCards">
+                    <div class="empty-message">No cards to play yet</div>
                 </div>
             </div>
 
             <!-- Hand Area -->
             <div class="hand-area">
-                <div class="hand-label">Your Hand</div>
+                <div class="hand-label">Your Full Hand</div>
                 <div class="cards" id="playerCards"></div>
             </div>
         </div>
@@ -669,12 +671,14 @@
     <div class="waiting-screen active" id="waitingScreen">
         <div class="waiting-content">
             <h2>🐱 Exploding Kittens</h2>
-            <p id="waitingText">Waiting for opponent to connect...</p>
+            <p id="waitingText">Connecting to opponent...</p>
             <div class="spinner"></div>
         </div>
     </div>
 
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <script>
+        // ===== Card types =====
         const CARD_TYPES = {
             EXPLODING: 'Exploding Kitten',
             DEFUSE: 'Defuse',
@@ -686,83 +690,179 @@
             NOPE: 'Nope'
         };
 
-        const GAME_STATE_KEY = 'exploding_kittens_gamestate';
-        const GAME_META_KEY = 'exploding_kittens_game';
+        // ===== Game info from lobby =====
+        const gameInfo = JSON.parse(sessionStorage.getItem('exploding_kittens_game') || '{}');
+        const isHost = gameInfo.role === 'host';
+        const myName = gameInfo.playerName || 'You';
+        const oppName = gameInfo.opponentName || 'Opponent';
+        const roomCode = gameInfo.roomCode || '';
 
-        let myPlayerNum = null;
-        let selectedCardIndex = null;
-        let localPeekMessage = null;
+        // ===== Local view state (what this player sees) =====
+        let viewState = {
+            myHand: [],
+            opponentHandCount: 0,
+            deckCount: 0,
+            playedPileCount: 0,
+            lastPlayedCard: null,
+            isMyTurn: false,
+            isAttacked: false,
+            cardsToPlay: 1,
+            myAlive: true,
+            opponentAlive: true,
+            gameOver: false,
+            message: '',
+            messageType: 'info',
+            selectedCards: [],
+            skipNextDraw: false
+        };
 
-        function initGame() {
-            const params = new URLSearchParams(window.location.search);
-            myPlayerNum = parseInt(params.get('player'));
+        // ===== Host-only: full game state =====
+        let hostState = null;
+        if (isHost) {
+            hostState = {
+                deck: [],
+                playedPile: [],
+                hands: [[], []],       // [host, client]
+                names: [myName, oppName],
+                alive: [true, true],
+                currentTurn: 0,        // 0 = host, 1 = client
+                gameOver: false,
+                cardsToPlay: [1, 1],
+                isAttacked: [false, false],
+                skipNextDraw: [false, false]
+            };
+        }
 
-            if (myPlayerNum !== 1 && myPlayerNum !== 2) {
-                document.getElementById('waitingText').textContent = 'Invalid game link. Return to lobby.';
+        // ===== PeerJS connection =====
+        let peer = null;
+        let conn = null;
+
+        function initConnection() {
+            if (!roomCode) {
+                document.getElementById('waitingText').textContent = 'No game found. Return to lobby.';
                 return;
             }
 
-            const meta = JSON.parse(localStorage.getItem(GAME_META_KEY) || '{}');
-            const myName = myPlayerNum === 1 ? meta.player1 : meta.player2;
-            const opponentName = myPlayerNum === 1 ? meta.player2 : meta.player1;
-            document.getElementById('playerName').textContent = myName || 'You';
-            document.getElementById('opponentName').textContent = opponentName || 'Opponent';
+            const peerId = isHost ? ('ekgame-' + roomCode) : undefined;
+            peer = new Peer(peerId);
 
-            let state = readGameState();
-
-            if (!state || !state.initialized) {
-                if (myPlayerNum === 1) {
-                    state = createInitialGameState(meta);
-                    writeGameState(state);
-                    document.getElementById('waitingScreen').classList.remove('active');
-                    renderUI(state);
+            peer.on('open', () => {
+                if (isHost) {
+                    document.getElementById('waitingText').textContent = 'Waiting for opponent to connect...';
+                    peer.on('connection', (c) => {
+                        conn = c;
+                        setupConnection();
+                    });
                 } else {
-                    document.getElementById('waitingText').textContent = 'Waiting for game to initialize...';
-                    const interval = setInterval(() => {
-                        state = readGameState();
-                        if (state && state.initialized) {
-                            clearInterval(interval);
-                            document.getElementById('waitingScreen').classList.remove('active');
-                            renderUI(state);
-                        }
-                    }, 500);
+                    document.getElementById('waitingText').textContent = 'Connecting to host...';
+                    connectToHost(0);
                 }
-            } else {
-                document.getElementById('waitingScreen').classList.remove('active');
-                renderUI(state);
-            }
+            });
 
-            window.addEventListener('storage', (e) => {
-                if (e.key === GAME_STATE_KEY) {
-                    const newState = readGameState();
-                    if (newState) {
-                        selectedCardIndex = null;
-                        localPeekMessage = null;
-                        renderUI(newState);
-                    }
+            peer.on('error', (err) => {
+                if (err.type === 'peer-unavailable' && !isHost) {
+                    // Host may not be ready yet, retry
+                    document.getElementById('waitingText').textContent = 'Waiting for host... retrying';
+                } else {
+                    document.getElementById('waitingText').textContent = 'Connection error: ' + err.type;
                 }
             });
         }
 
-        function readGameState() {
-            try { return JSON.parse(localStorage.getItem(GAME_STATE_KEY)); }
-            catch { return null; }
+        function connectToHost(attempt) {
+            if (attempt >= 10) {
+                document.getElementById('waitingText').textContent = 'Could not reach host. Please try again.';
+                return;
+            }
+            const c = peer.connect('ekgame-' + roomCode, { reliable: true });
+            let connected = false;
+
+            c.on('open', () => {
+                connected = true;
+                conn = c;
+                setupConnection_afterOpen();
+            });
+
+            c.on('error', () => {
+                if (!connected) {
+                    setTimeout(() => connectToHost(attempt + 1), 2000);
+                }
+            });
+
+            // If not connected after 3 seconds, retry
+            setTimeout(() => {
+                if (!connected && (!c.open)) {
+                    try { c.close(); } catch(e) {}
+                    connectToHost(attempt + 1);
+                }
+            }, 3000);
         }
 
-        function writeGameState(state) {
-            localStorage.setItem(GAME_STATE_KEY, JSON.stringify(state));
+        function setupConnection() {
+            conn.on('open', () => {
+                if (isHost) {
+                    initHostGame();
+                } else {
+                    conn.send({ type: 'ready' });
+                }
+            });
+
+            conn.on('data', (data) => {
+                handleMessage(data);
+            });
+
+            conn.on('close', () => {
+                if (!viewState.gameOver) {
+                    showMessage('Opponent disconnected!', 'danger');
+                }
+            });
         }
 
-        function createInitialGameState(meta) {
-            const deck = createDeck();
-            const explodingCards = deck.filter(c => c.type === CARD_TYPES.EXPLODING);
-            const nonExploding = shuffleArray(deck.filter(c => c.type !== CARD_TYPES.EXPLODING));
+        function setupConnection_afterOpen() {
+            conn.send({ type: 'ready' });
 
-            const player1Hand = [{ type: CARD_TYPES.DEFUSE }];
-            const player2Hand = [{ type: CARD_TYPES.DEFUSE }];
+            conn.on('data', (data) => {
+                handleMessage(data);
+            });
+
+            conn.on('close', () => {
+                if (!viewState.gameOver) {
+                    showMessage('Opponent disconnected!', 'danger');
+                }
+            });
+        }
+
+        // ===== Host game logic =====
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        function initHostGame() {
+            // Build deck: 1 Exploding Kitten for 2 players
+            const deck = [];
+            for (let i = 0; i < 1; i++) deck.push({ type: CARD_TYPES.EXPLODING });
+            for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.DEFUSE });
+            for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.SKIP });
+            for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.ATTACK });
+            for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.FAVOR });
+            for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.SHUFFLE });
+            for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.PEEK });
+            for (let i = 0; i < 5; i++) deck.push({ type: CARD_TYPES.NOPE });
+
+            // Separate exploding kittens
+            const exploding = deck.filter(c => c.type === CARD_TYPES.EXPLODING);
+            let remaining = shuffleArray(deck.filter(c => c.type !== CARD_TYPES.EXPLODING));
+
+            // Give each player 1 defuse + 6 random cards
+            hostState.hands[0] = [{ type: CARD_TYPES.DEFUSE }];
+            hostState.hands[1] = [{ type: CARD_TYPES.DEFUSE }];
 
             let defusesRemoved = 0;
-            const pool = nonExploding.filter(c => {
+            remaining = remaining.filter(c => {
                 if (c.type === CARD_TYPES.DEFUSE && defusesRemoved < 2) {
                     defusesRemoved++;
                     return false;
@@ -771,260 +871,303 @@
             });
 
             for (let i = 0; i < 6; i++) {
-                player1Hand.push(pool.pop());
-                player2Hand.push(pool.pop());
+                hostState.hands[0].push(remaining.pop());
+                hostState.hands[1].push(remaining.pop());
             }
 
-            return {
-                deck: shuffleArray([...pool, ...explodingCards]),
-                playedPile: [],
-                player1Hand,
-                player2Hand,
-                currentPlayer: 1,
-                turnsRemaining: 1,
-                gameOver: false,
-                winner: null,
-                player1Name: meta.player1 || 'Player 1',
-                player2Name: meta.player2 || 'Player 2',
-                player1Alive: true,
-                player2Alive: true,
-                message: 'Game started! Player 1 goes first.',
-                messageType: 'info',
-                initialized: true
-            };
+            // Put exploding kittens back and shuffle
+            hostState.deck = shuffleArray([...remaining, ...exploding]);
+            hostState.currentTurn = 0;
+
+            // Send initial state to both players
+            broadcastState('Game started!', 'info');
         }
 
-        function createDeck() {
-            const deck = [];
-            for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.EXPLODING });
-            for (let i = 0; i < 6; i++) deck.push({ type: CARD_TYPES.DEFUSE });
-            for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.SKIP });
-            for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.ATTACK });
-            for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.FAVOR });
-            for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.SHUFFLE });
-            for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.PEEK });
-            for (let i = 0; i < 4; i++) deck.push({ type: CARD_TYPES.NOPE });
-            return shuffleArray(deck);
-        }
+        function broadcastState(msg, msgType) {
+            // Send to host (self)
+            updateLocalView(0, msg, msgType);
 
-        function shuffleArray(array) {
-            const arr = [...array];
-            for (let i = arr.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [arr[i], arr[j]] = [arr[j], arr[i]];
+            // Send to client
+            if (conn && conn.open) {
+                conn.send({
+                    type: 'state',
+                    hand: hostState.hands[1],
+                    opponentHandCount: hostState.hands[0].length,
+                    deckCount: hostState.deck.length,
+                    playedPileCount: hostState.playedPile.length,
+                    lastPlayedCard: hostState.playedPile.length > 0 ? hostState.playedPile[hostState.playedPile.length - 1] : null,
+                    isMyTurn: hostState.currentTurn === 1,
+                    isAttacked: hostState.isAttacked[1],
+                    cardsToPlay: hostState.cardsToPlay[1],
+                    myAlive: hostState.alive[1],
+                    opponentAlive: hostState.alive[0],
+                    gameOver: hostState.gameOver,
+                    message: msg,
+                    messageType: msgType
+                });
             }
-            return arr;
         }
 
-        function getMyHand(state) {
-            return myPlayerNum === 1 ? state.player1Hand : state.player2Hand;
-        }
-        function getOpponentHand(state) {
-            return myPlayerNum === 1 ? state.player2Hand : state.player1Hand;
-        }
-        function setMyHand(state, hand) {
-            if (myPlayerNum === 1) state.player1Hand = hand;
-            else state.player2Hand = hand;
-        }
-        function setOpponentHand(state, hand) {
-            if (myPlayerNum === 1) state.player2Hand = hand;
-            else state.player1Hand = hand;
-        }
-        function getMyName(state) {
-            return myPlayerNum === 1 ? state.player1Name : state.player2Name;
-        }
-        function getOpponentName(state) {
-            return myPlayerNum === 1 ? state.player2Name : state.player1Name;
-        }
-        function isMyTurn(state) {
-            return state.currentPlayer === myPlayerNum && !state.gameOver;
+        function updateLocalView(playerIndex, msg, msgType) {
+            const oi = playerIndex === 0 ? 1 : 0;
+            viewState.myHand = [...hostState.hands[playerIndex]];
+            viewState.opponentHandCount = hostState.hands[oi].length;
+            viewState.deckCount = hostState.deck.length;
+            viewState.playedPileCount = hostState.playedPile.length;
+            viewState.lastPlayedCard = hostState.playedPile.length > 0 ? hostState.playedPile[hostState.playedPile.length - 1] : null;
+            viewState.isMyTurn = hostState.currentTurn === playerIndex;
+            viewState.isAttacked = hostState.isAttacked[playerIndex];
+            viewState.cardsToPlay = hostState.cardsToPlay[playerIndex];
+            viewState.myAlive = hostState.alive[playerIndex];
+            viewState.opponentAlive = hostState.alive[oi];
+            viewState.gameOver = hostState.gameOver;
+            viewState.message = msg;
+            viewState.messageType = msgType;
+            viewState.selectedCards = [];
+
+            document.getElementById('waitingScreen').classList.remove('active');
+            updateUI();
         }
 
-        function selectCard(index) {
-            const state = readGameState();
-            if (!isMyTurn(state)) return;
-            const hand = getMyHand(state);
-            const card = hand[index];
-            if (!card || card.type === CARD_TYPES.EXPLODING) return;
-            if (card.type === CARD_TYPES.DEFUSE && !hand.some(c => c.type === CARD_TYPES.EXPLODING)) return;
-            selectedCardIndex = selectedCardIndex === index ? null : index;
-            renderUI(state);
-        }
-
-        function playSelectedCards() {
-            if (selectedCardIndex === null) return;
-            const state = readGameState();
-            if (!isMyTurn(state)) return;
-
-            const myHand = getMyHand(state);
-            const card = myHand[selectedCardIndex];
-            if (!card) return;
-
-            myHand.splice(selectedCardIndex, 1);
-            state.playedPile.push(card);
-
-            const effect = executeCardEffect(card.type, state);
-            selectedCardIndex = null;
-
-            const opponentNum = myPlayerNum === 1 ? 2 : 1;
-
-            if (effect === 'attack') {
-                state.currentPlayer = opponentNum;
-                state.turnsRemaining = 2;
-                state.message = `${getMyName(state)} played ATTACK! ${getOpponentName(state)} must take 2 turns!`;
-                state.messageType = 'danger';
-            } else if (effect === 'skip') {
-                state.turnsRemaining--;
-                if (state.turnsRemaining > 0) {
-                    state.message = `${getMyName(state)} played SKIP! Skipped one draw, still has turns remaining!`;
-                    state.messageType = 'info';
-                } else {
-                    state.currentPlayer = opponentNum;
-                    state.turnsRemaining = 1;
-                    state.message = `${getMyName(state)} played SKIP! Turn ended without drawing!`;
-                    state.messageType = 'info';
+        // ===== Handle messages =====
+        function handleMessage(data) {
+            if (isHost) {
+                // Host receives actions from client
+                if (data.type === 'ready') {
+                    initHostGame();
+                } else if (data.type === 'action') {
+                    processAction(1, data);
                 }
-            } else if (effect === 'shuffle') {
-                state.message = `${getMyName(state)} played SHUFFLE! Deck reshuffled!`;
-                state.messageType = 'info';
-            } else if (effect === 'peek') {
-                state.message = `${getMyName(state)} played See the Future`;
-                state.messageType = 'info';
-            } else if (effect === 'favor') {
-                state.message = `${getMyName(state)} played FAVOR!`;
-                state.messageType = 'success';
             } else {
-                state.message = `${getMyName(state)} played ${card.type}`;
-                state.messageType = 'success';
-            }
+                // Client receives state updates from host
+                if (data.type === 'state') {
+                    viewState.myHand = data.hand;
+                    viewState.opponentHandCount = data.opponentHandCount;
+                    viewState.deckCount = data.deckCount;
+                    viewState.playedPileCount = data.playedPileCount;
+                    viewState.lastPlayedCard = data.lastPlayedCard;
+                    viewState.isMyTurn = data.isMyTurn;
+                    viewState.isAttacked = data.isAttacked;
+                    viewState.cardsToPlay = data.cardsToPlay;
+                    viewState.myAlive = data.myAlive;
+                    viewState.opponentAlive = data.opponentAlive;
+                    viewState.gameOver = data.gameOver;
+                    viewState.message = data.message;
+                    viewState.messageType = data.messageType;
+                    viewState.selectedCards = [];
 
-            setMyHand(state, myHand);
-            writeGameState(state);
-            renderUI(state);
+                    document.getElementById('waitingScreen').classList.remove('active');
+                    updateUI();
+
+                    if (data.gameOver) {
+                        showGameOver(data.myAlive);
+                    }
+                }
+            }
         }
 
-        function executeCardEffect(cardType, state) {
-            if (cardType === CARD_TYPES.ATTACK) return 'attack';
-            if (cardType === CARD_TYPES.SKIP) return 'skip';
+        // ===== Host processes an action from either player =====
+        function processAction(playerIndex, action) {
+            if (hostState.gameOver) return;
+            if (hostState.currentTurn !== playerIndex) return;
 
-            if (cardType === CARD_TYPES.SHUFFLE) {
-                state.deck = shuffleArray(state.deck);
-                return 'shuffle';
-            }
+            const hand = hostState.hands[playerIndex];
+            const otherIndex = playerIndex === 0 ? 1 : 0;
+            const pName = hostState.names[playerIndex];
+            const oName = hostState.names[otherIndex];
 
-            if (cardType === CARD_TYPES.PEEK) {
-                const topCards = state.deck.slice(-Math.min(3, state.deck.length)).reverse();
-                if (topCards.length > 0) {
-                    const names = topCards.map((c, i) => `${i + 1}. ${c.type}`).join(' | ');
-                    localPeekMessage = `Top ${topCards.length} cards: ${names}`;
-                } else {
-                    localPeekMessage = 'The deck is empty!';
+            // Play selected cards
+            if (action.selectedCardIndices && action.selectedCardIndices.length > 0) {
+                if (hostState.isAttacked[playerIndex] && action.selectedCardIndices.length !== hostState.cardsToPlay[playerIndex]) {
+                    broadcastState(`${pName} must play exactly ${hostState.cardsToPlay[playerIndex]} card(s)!`, 'warning');
+                    return;
                 }
-                return 'peek';
-            }
 
-            if (cardType === CARD_TYPES.FAVOR) {
-                const opponentHand = getOpponentHand(state);
-                const myHand = getMyHand(state);
-                if (opponentHand.length > 0) {
-                    const randIdx = Math.floor(Math.random() * opponentHand.length);
-                    const stolenCard = opponentHand.splice(randIdx, 1)[0];
-                    myHand.push(stolenCard);
-                    setMyHand(state, myHand);
-                    setOpponentHand(state, opponentHand);
+                const sorted = [...action.selectedCardIndices].sort((a, b) => b - a);
+                const playedCards = sorted.map(i => hand[i]);
+
+                // Validate indices
+                for (const idx of sorted) {
+                    if (idx < 0 || idx >= hand.length) return;
                 }
-                return 'favor';
+
+                sorted.forEach(i => hand.splice(i, 1));
+
+                let skipDraw = false;
+                let pendingAttack = false;
+
+                playedCards.forEach(card => {
+                    hostState.playedPile.push(card);
+
+                    if (card.type === CARD_TYPES.ATTACK) {
+                        skipDraw = true;
+                        pendingAttack = true;
+                        broadcastState(`${pName} played ATTACK! ${oName} must play 2 cards!`, 'danger');
+                    } else if (card.type === CARD_TYPES.SKIP) {
+                        skipDraw = true;
+                        broadcastState(`${pName} played SKIP!`, 'info');
+                    } else if (card.type === CARD_TYPES.SHUFFLE) {
+                        hostState.deck = shuffleArray(hostState.deck);
+                        broadcastState(`${pName} played SHUFFLE! Deck reshuffled!`, 'info');
+                    } else if (card.type === CARD_TYPES.PEEK) {
+                        const top3 = hostState.deck.slice(-3).reverse();
+                        const peekMsg = top3.map((c, i) => `${i + 1}. ${c.type}`).join(', ');
+                        // Only the playing player sees the peek result
+                        if (playerIndex === 0) {
+                            updateLocalView(0, `You peeked: ${peekMsg}`, 'info');
+                            if (conn && conn.open) {
+                                conn.send({
+                                    type: 'state',
+                                    hand: hostState.hands[1],
+                                    opponentHandCount: hostState.hands[0].length,
+                                    deckCount: hostState.deck.length,
+                                    playedPileCount: hostState.playedPile.length,
+                                    lastPlayedCard: hostState.playedPile[hostState.playedPile.length - 1],
+                                    isMyTurn: hostState.currentTurn === 1,
+                                    isAttacked: hostState.isAttacked[1],
+                                    cardsToPlay: hostState.cardsToPlay[1],
+                                    myAlive: hostState.alive[1],
+                                    opponentAlive: hostState.alive[0],
+                                    gameOver: hostState.gameOver,
+                                    message: `${pName} peeked at the top cards...`,
+                                    messageType: 'info'
+                                });
+                            }
+                        } else {
+                            updateLocalView(0, `${pName} peeked at the top cards...`, 'info');
+                            if (conn && conn.open) {
+                                conn.send({
+                                    type: 'state',
+                                    hand: hostState.hands[1],
+                                    opponentHandCount: hostState.hands[0].length,
+                                    deckCount: hostState.deck.length,
+                                    playedPileCount: hostState.playedPile.length,
+                                    lastPlayedCard: hostState.playedPile[hostState.playedPile.length - 1],
+                                    isMyTurn: hostState.currentTurn === 1,
+                                    isAttacked: hostState.isAttacked[1],
+                                    cardsToPlay: hostState.cardsToPlay[1],
+                                    myAlive: hostState.alive[1],
+                                    opponentAlive: hostState.alive[0],
+                                    gameOver: hostState.gameOver,
+                                    message: `You peeked: ${peekMsg}`,
+                                    messageType: 'info'
+                                });
+                            }
+                        }
+                        return;
+                    } else if (card.type === CARD_TYPES.FAVOR) {
+                        const otherHand = hostState.hands[otherIndex];
+                        if (otherHand.length > 0) {
+                            const ri = Math.floor(Math.random() * otherHand.length);
+                            const stolen = otherHand.splice(ri, 1)[0];
+                            hand.push(stolen);
+                            broadcastState(`${pName} played FAVOR and took a card from ${oName}!`, 'info');
+                        } else {
+                            broadcastState(`${pName} played FAVOR but ${oName} has no cards!`, 'warning');
+                        }
+                    } else if (card.type === CARD_TYPES.NOPE) {
+                        broadcastState(`${pName} played NOPE!`, 'warning');
+                    }
+                });
+
+                if (skipDraw) {
+                    // Switch turn without drawing
+                    hostState.currentTurn = otherIndex;
+                    hostState.cardsToPlay[playerIndex] = 1;
+                    hostState.isAttacked[playerIndex] = false;
+                    if (pendingAttack) {
+                        hostState.isAttacked[otherIndex] = true;
+                        hostState.cardsToPlay[otherIndex] = 2;
+                    }
+                    broadcastState(viewState.message, viewState.messageType);
+                    return;
+                }
             }
 
-            return null;
-        }
-
-        function drawAndEndTurn() {
-            const state = readGameState();
-            if (!isMyTurn(state)) return;
-
-            if (state.deck.length === 0) {
-                state.message = 'Deck is empty!';
-                state.messageType = 'info';
-                state.gameOver = true;
-                writeGameState(state);
-                renderUI(state);
+            // Draw a card
+            if (hostState.deck.length === 0) {
+                hostState.gameOver = true;
+                broadcastState(`Deck is empty! ${pName} survives!`, 'success');
+                if (playerIndex === 0) showGameOver(true);
+                else showGameOver(false);
                 return;
             }
 
-            const myHand = getMyHand(state);
-            const card = state.deck.pop();
-            myHand.push(card);
+            const drawn = hostState.deck.pop();
+            hand.push(drawn);
 
-            if (card.type === CARD_TYPES.EXPLODING) {
-                const defuseIdx = myHand.findIndex(c => c.type === CARD_TYPES.DEFUSE);
-                if (defuseIdx !== -1) {
-                    myHand.splice(defuseIdx, 1);
-                    const ekIdx = myHand.indexOf(card);
-                    myHand.splice(ekIdx, 1);
-                    const pos = Math.floor(Math.random() * (state.deck.length + 1));
-                    state.deck.splice(pos, 0, card);
-                    state.message = `${getMyName(state)} drew an Exploding Kitten! Used Defuse!`;
-                    state.messageType = 'warning';
+            if (drawn.type === CARD_TYPES.EXPLODING) {
+                const defIdx = hand.findIndex(c => c.type === CARD_TYPES.DEFUSE);
+                if (defIdx !== -1) {
+                    hand.splice(defIdx, 1);
+                    const expIdx = hand.indexOf(drawn);
+                    hand.splice(expIdx, 1);
+                    const insertAt = Math.floor(Math.random() * (hostState.deck.length + 1));
+                    hostState.deck.splice(insertAt, 0, drawn);
+
+                    hostState.currentTurn = otherIndex;
+                    hostState.cardsToPlay[playerIndex] = 1;
+                    hostState.isAttacked[playerIndex] = false;
+                    broadcastState(`${pName} drew an Exploding Kitten but used a Defuse!`, 'warning');
                 } else {
-                    state.message = `${getMyName(state)} drew an Exploding Kitten! No Defuse! Game Over!`;
-                    state.messageType = 'danger';
-                    if (myPlayerNum === 1) state.player1Alive = false;
-                    else state.player2Alive = false;
-                    const opponentNum = myPlayerNum === 1 ? 2 : 1;
-                    state.gameOver = true;
-                    state.winner = opponentNum;
-                    setMyHand(state, myHand);
-                    writeGameState(state);
-                    renderUI(state);
-                    return;
+                    hostState.alive[playerIndex] = false;
+                    hostState.gameOver = true;
+                    broadcastState(`${pName} drew an Exploding Kitten and EXPLODED!`, 'danger');
+
+                    if (playerIndex === 0) showGameOver(false);
+                    else showGameOver(true);
                 }
             } else {
-                state.message = `${getMyName(state)} drew a card`;
-                state.messageType = 'info';
+                hostState.currentTurn = otherIndex;
+                hostState.cardsToPlay[playerIndex] = 1;
+                hostState.isAttacked[playerIndex] = false;
+                broadcastState(`${pName} drew a card`, 'info');
             }
+        }
 
-            state.turnsRemaining--;
-            if (state.turnsRemaining > 0) {
-                state.message += `. Still ${state.turnsRemaining} turn(s) remaining!`;
+        // ===== Player UI actions =====
+        function toggleCardSelection(index) {
+            if (!viewState.isMyTurn || viewState.gameOver) return;
+
+            const card = viewState.myHand[index];
+            if (!card || card.type === CARD_TYPES.EXPLODING) return;
+            if (card.type === CARD_TYPES.DEFUSE && !viewState.myHand.some(c => c.type === CARD_TYPES.EXPLODING)) return;
+
+            const si = viewState.selectedCards.indexOf(index);
+            if (si > -1) {
+                viewState.selectedCards.splice(si, 1);
             } else {
-                const opponentNum = myPlayerNum === 1 ? 2 : 1;
-                state.currentPlayer = opponentNum;
-                state.turnsRemaining = 1;
+                if (viewState.selectedCards.length < viewState.cardsToPlay) {
+                    viewState.selectedCards.push(index);
+                }
             }
-
-            setMyHand(state, myHand);
-            selectedCardIndex = null;
-            writeGameState(state);
-            renderUI(state);
+            updateUI();
         }
 
-        function showGameOver(winnerName, playerWon) {
-            const modal = document.getElementById('gameOverModal');
-            const title = document.getElementById('gameOverTitle');
-            const message = document.getElementById('gameOverMessage');
-            if (playerWon) {
-                title.textContent = 'You Win!';
-                message.textContent = 'Congratulations! You survived the Exploding Kittens!';
+        function endPlayerTurn() {
+            if (!viewState.isMyTurn || viewState.gameOver) return;
+
+            if (viewState.isAttacked && viewState.selectedCards.length > 0 && viewState.selectedCards.length !== viewState.cardsToPlay) {
+                showMessage(`Select exactly ${viewState.cardsToPlay} card(s) to play!`, 'warning');
+                return;
+            }
+
+            if (isHost) {
+                processAction(0, { selectedCardIndices: [...viewState.selectedCards] });
             } else {
-                title.textContent = 'Game Over';
-                message.textContent = `${winnerName} has won! Better luck next time!`;
+                conn.send({
+                    type: 'action',
+                    selectedCardIndices: [...viewState.selectedCards]
+                });
             }
-            modal.classList.add('active');
+            viewState.selectedCards = [];
         }
 
-        function goHome() {
-            localStorage.removeItem(GAME_META_KEY);
-            localStorage.removeItem(GAME_STATE_KEY);
-            window.location.href = 'onlineconnecter.html';
+        function drawAndEndTurn() {
+            endPlayerTurn();
         }
 
-        function showMessage(text, type) {
-            const el = document.getElementById('gameMessage');
-            el.textContent = text;
-            el.className = 'game-message ' + (type || 'info');
-        }
-
+        // ===== UI rendering =====
         function getCardClass(cardType) {
             switch(cardType) {
                 case CARD_TYPES.EXPLODING: return 'exploding';
@@ -1041,91 +1184,133 @@
 
         function getCardEmoji(cardType) {
             switch(cardType) {
-                case CARD_TYPES.EXPLODING: return '💣';
-                case CARD_TYPES.DEFUSE: return '🧯';
-                case CARD_TYPES.SKIP: return '⏭️';
-                case CARD_TYPES.ATTACK: return '⚔️';
-                case CARD_TYPES.FAVOR: return '🙏';
-                case CARD_TYPES.SHUFFLE: return '🔀';
-                case CARD_TYPES.PEEK: return '👀';
-                case CARD_TYPES.NOPE: return '🚫';
-                default: return '🎴';
+                case CARD_TYPES.EXPLODING: return '\ud83d\udca3';
+                case CARD_TYPES.DEFUSE: return '\ud83e\uddef';
+                case CARD_TYPES.SKIP: return '\u23ed\ufe0f';
+                case CARD_TYPES.ATTACK: return '\u2694\ufe0f';
+                case CARD_TYPES.FAVOR: return '\ud83d\ude4f';
+                case CARD_TYPES.SHUFFLE: return '\ud83d\udd00';
+                case CARD_TYPES.PEEK: return '\ud83d\udc40';
+                case CARD_TYPES.NOPE: return '\ud83d\udeab';
+                default: return '\ud83c\udfb4';
             }
         }
 
-        function renderUI(state) {
-            if (!state) return;
+        function showMessage(text, type) {
+            const el = document.getElementById('gameMessage');
+            el.textContent = text;
+            el.className = 'game-message ' + type;
+        }
 
-            const myHand = getMyHand(state);
-            const opponentHand = getOpponentHand(state);
-            const myTurn = isMyTurn(state);
+        function showGameOver(iWon) {
+            const modal = document.getElementById('gameOverModal');
+            const title = document.getElementById('gameOverTitle');
+            const msg = document.getElementById('gameOverMessage');
 
-            document.getElementById('playerHandCount').textContent = myHand.length;
-            document.getElementById('opponentHandCount').textContent = opponentHand.length;
-            document.getElementById('deckCount').textContent = state.deck.length + ' cards';
-            document.getElementById('playedCount').textContent = state.playedPile.length + ' cards';
-
-            if (state.playedPile.length > 0) {
-                const lastCard = state.playedPile[state.playedPile.length - 1];
-                document.getElementById('playedCardType').textContent = getCardEmoji(lastCard.type);
-            }
-
-            document.getElementById('playerStatus').textContent = myTurn ? 'Active' : 'Waiting';
-            document.getElementById('opponentStatus').textContent = myTurn ? 'Waiting' : 'Active';
-
-            const turnIndicator = document.getElementById('turnIndicator');
-            if (myTurn) {
-                if (state.turnsRemaining > 1) {
-                    turnIndicator.textContent = `YOU ARE ATTACKED! ${state.turnsRemaining} turns remaining!`;
-                } else {
-                    turnIndicator.textContent = 'Your Turn - Play cards (optional), then draw!';
-                }
-                turnIndicator.className = 'turn-indicator your-turn';
+            if (iWon) {
+                title.textContent = '\ud83c\udf89 You Win!';
+                msg.textContent = `You survived the Exploding Kittens and defeated ${oppName}!`;
             } else {
-                turnIndicator.textContent = `${getOpponentName(state)}'s Turn`;
-                turnIndicator.className = 'turn-indicator opponent-turn';
+                title.textContent = '\ud83d\udc80 Game Over';
+                msg.textContent = `${oppName} has won! Better luck next time!`;
+            }
+            modal.classList.add('active');
+        }
+
+        function goHome() {
+            sessionStorage.removeItem('exploding_kittens_game');
+            if (peer) peer.destroy();
+            window.location.href = 'onlineconnecter.html';
+        }
+
+        function getPlayableCards() {
+            const playable = [];
+            viewState.myHand.forEach((card, index) => {
+                if (card.type === CARD_TYPES.EXPLODING) return;
+                if (card.type === CARD_TYPES.DEFUSE && !viewState.myHand.some(c => c.type === CARD_TYPES.EXPLODING)) return;
+                playable.push({ card, index });
+            });
+            return playable;
+        }
+
+        function updateUI() {
+            document.getElementById('playerName').textContent = myName;
+            document.getElementById('opponentName').textContent = oppName;
+
+            document.getElementById('playerHandCount').textContent = viewState.myHand.length;
+            document.getElementById('opponentHandCount').textContent = viewState.opponentHandCount;
+            document.getElementById('deckCount').textContent = viewState.deckCount + ' cards';
+            document.getElementById('playedCount').textContent = viewState.playedPileCount + ' cards';
+
+            document.getElementById('playerStatus').textContent = viewState.myAlive ? 'Alive' : 'Dead';
+            document.getElementById('opponentStatus').textContent = viewState.opponentAlive ? 'Alive' : 'Dead';
+
+            if (viewState.lastPlayedCard) {
+                document.getElementById('playedCardType').textContent = getCardEmoji(viewState.lastPlayedCard.type);
             }
 
-            if (localPeekMessage) {
-                showMessage(localPeekMessage, 'info');
-                localPeekMessage = null;
-            } else {
-                showMessage(state.message || '', state.messageType || 'info');
-            }
-
-            document.getElementById('playCardBtn').disabled = !myTurn || selectedCardIndex === null;
-            document.getElementById('drawCardBtn').disabled = !myTurn;
-            document.getElementById('drawDeckBtn').style.pointerEvents = myTurn ? 'auto' : 'none';
-            document.getElementById('drawDeckBtn').style.opacity = myTurn ? '1' : '0.5';
-
-            const cardsDiv = document.getElementById('playerCards');
-            cardsDiv.innerHTML = '';
-            myHand.forEach((card, index) => {
-                const cardDiv = document.createElement('div');
-                cardDiv.className = 'card ' + getCardClass(card.type);
-                if (selectedCardIndex === index) cardDiv.classList.add('selected');
-                cardDiv.textContent = getCardEmoji(card.type) + '\n' + card.type.substring(0, 8);
-
-                const canSelect = myTurn && card.type !== CARD_TYPES.EXPLODING &&
-                    !(card.type === CARD_TYPES.DEFUSE && !myHand.some(c => c.type === CARD_TYPES.EXPLODING));
-
-                if (canSelect) {
-                    cardDiv.onclick = () => selectCard(index);
-                    cardDiv.style.cursor = 'pointer';
+            // Turn indicator
+            const ti = document.getElementById('turnIndicator');
+            if (viewState.isMyTurn) {
+                if (viewState.isAttacked) {
+                    ti.textContent = '\u2694\ufe0f YOU ARE ATTACKED! Must play ' + viewState.cardsToPlay + ' cards, then draw!';
                 } else {
-                    cardDiv.classList.add('disabled');
+                    ti.textContent = '\u2705 Your Turn \u2014 Select cards (optional), then click Play & Draw!';
                 }
+                ti.className = 'turn-indicator your-turn';
+            } else {
+                ti.textContent = '\u23f3 ' + oppName + '\'s Turn';
+                ti.className = 'turn-indicator opponent-turn';
+            }
 
-                cardsDiv.appendChild(cardDiv);
+            // Message
+            if (viewState.message) {
+                showMessage(viewState.message, viewState.messageType);
+            }
+
+            // Button
+            document.getElementById('endTurnBtn').disabled = !viewState.isMyTurn || viewState.gameOver;
+
+            // Playable cards
+            const playableDiv = document.getElementById('playableCards');
+            const playable = getPlayableCards();
+
+            if (!viewState.isMyTurn || playable.length === 0) {
+                playableDiv.innerHTML = '<div class="empty-message">' + (viewState.isMyTurn ? 'No playable cards. Just draw.' : 'Wait for your turn.') + '</div>';
+            } else {
+                playableDiv.innerHTML = '';
+                playable.forEach(({ card, index }) => {
+                    const div = document.createElement('div');
+                    div.className = 'playable-card ' + getCardClass(card.type);
+                    if (viewState.selectedCards.includes(index)) div.classList.add('selected');
+                    div.textContent = getCardEmoji(card.type) + '\n' + card.type.substring(0, 8);
+                    div.onclick = () => toggleCardSelection(index);
+                    if (viewState.gameOver) { div.classList.add('disabled'); div.onclick = null; }
+                    playableDiv.appendChild(div);
+                });
+            }
+
+            // Player hand
+            const handDiv = document.getElementById('playerCards');
+            handDiv.innerHTML = '';
+            viewState.myHand.forEach((card, index) => {
+                const div = document.createElement('div');
+                div.className = 'card ' + getCardClass(card.type);
+                div.textContent = getCardEmoji(card.type) + '\n' + card.type.substring(0, 8);
+                if (card.type === CARD_TYPES.EXPLODING || !viewState.isMyTurn) {
+                    div.classList.add('disabled');
+                }
+                handDiv.appendChild(div);
             });
 
-            if (state.gameOver && state.winner) {
-                const winnerName = state.winner === 1 ? state.player1Name : state.player2Name;
-                showGameOver(winnerName, state.winner === myPlayerNum);
+            // Game over check
+            if (viewState.gameOver && !document.getElementById('gameOverModal').classList.contains('active')) {
+                showGameOver(viewState.myAlive);
             }
         }
 
-        window.addEventListener('load', initGame);
+        // ===== Start =====
+        window.addEventListener('load', initConnection);
     </script>
 </body>
 </html>
